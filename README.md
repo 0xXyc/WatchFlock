@@ -1,3 +1,31 @@
+# FlockWiFiMarauder
+
+Marauder fork that finds Flock ALPRs over WiFi. Stock detection is BLE-only and misses any pole without an external battery, which is most of them.
+
+Fork of [justcallmekoko/ESP32Marauder](https://github.com/justcallmekoko/ESP32Marauder). All credit for the firmware goes to kokollc. This fork adds one scan mode on top.
+
+## What's new
+
+A new scan mode `WIFI_SCAN_FLOCK_AP`. In the menu it's at `WiFi > Sniffers > WiFi Flock Sniff`. Over serial it's `sniffflockwifi`. It runs the WiFi radio in promiscuous mode, hops channels, and watches probe requests, beacons, and probe responses for:
+
+- 21 high-confidence Flock OUIs (direct IEEE registration plus exclusive use)
+- Contract manufacturer OUIs (Liteon, USI)
+- SSID patterns: `Flock-XXXXXX`, `test_flck` (CVE-2025-59409), any `*flock*` substring
+
+Hits go to serial and to a pcap on SD. Hidden SSIDs from a matching OUI get flagged once per BSSID per session.
+
+## Why
+
+Stock Marauder's "Flock Sniff" looks for BLE chatter from the optional `FS Ext Battery` accessory. Most pole-mounted Falcon V2s run on internal battery plus solar and never advertise BLE. They do continuously probe on WiFi for a hidden uplink SSID. This catches them that way. Field-confirmed in St. Pete FL: Liteon OUI `e4:aa:ea` caught a Falcon V2 in 50 seconds.
+
+## Build and run
+
+See [BUILD-C5.md](./BUILD-C5.md) for the ESP32-C5-DevKitC-1 + Marauder C5 Adapter + Flipper Zero rig. Companion rig on ESP32-WROVER-E: [flock-you-wifi-recon](https://github.com/0xXyc/flock-you-wifi-recon).
+
+By [Jake / Swiz Security](https://github.com/0xXyc).
+
+---
+
 <!---[![License: MIT](https://img.shields.io/github/license/mashape/apistatus.svg)](https://github.com/justcallmekoko/ESP32Marauder/blob/master/LICENSE)--->
 <!---[![Gitter](https://badges.gitter.im/justcallmekoko/ESP32Marauder.png)](https://gitter.im/justcallmekoko/ESP32Marauder)--->
 <!---[![Build Status](https://travis-ci.com/justcallmekoko/ESP32Marauder.svg?branch=master)](https://travis-ci.com/justcallmekoko/ESP32Marauder)--->
