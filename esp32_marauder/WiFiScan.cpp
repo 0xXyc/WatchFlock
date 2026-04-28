@@ -1950,6 +1950,8 @@ void WiFiScan::StartScan(uint8_t scan_mode, uint16_t color) {
     StopScan(scan_mode);
   else if (scan_mode == WIFI_SCAN_PROBE)
     RunProbeScan(scan_mode, color);
+  else if (scan_mode == WIFI_SCAN_FLOCK_AP)
+    RunFlockWifiScan(scan_mode, color);
   else if ((scan_mode == WIFI_SCAN_SAE_COMMIT) || (scan_mode == WIFI_ATTACK_SAE_COMMIT))
     RunSAEScan(scan_mode, color);
   else if (scan_mode == WIFI_SCAN_DETECT_FOLLOW) {
@@ -2345,6 +2347,7 @@ void WiFiScan::StopScan(uint8_t scan_mode) {
   (currentScanMode == WIFI_SCAN_PACKET_RATE) ||
   (currentScanMode == WIFI_CONNECTED) ||
   (currentScanMode == BT_SCAN_FLOCK) ||
+  (currentScanMode == WIFI_SCAN_FLOCK_AP) ||
   (currentScanMode == WIFI_SCAN_DETECT_FOLLOW) ||
   (currentScanMode == LV_JOIN_WIFI) ||
   (this->wifi_initialized))
@@ -9997,6 +10000,7 @@ void WiFiScan::main(uint32_t currentTime)
   (currentScanMode == WIFI_SCAN_PINESCAN) ||
   (currentScanMode == WIFI_SCAN_MULTISSID) ||
   (currentScanMode == WIFI_SCAN_DEAUTH) ||
+  (currentScanMode == WIFI_SCAN_FLOCK_AP) ||
   (currentScanMode == WIFI_SCAN_ALL))
   {
     if (currentTime - initTime >= this->channel_hop_delay * HOP_DELAY) {
@@ -10525,4 +10529,298 @@ void WiFiScan::main(uint32_t currentTime)
   else {
     this->wifi_connected = false;
   }
+}
+
+// ============================================================================
+// SWIZ FLOCK WIFI SNIFF
+// Ported from ~/repos/flock-you-wifi-recon (Jake / Swiz Security).
+// Detects Flock Safety ALPR cameras via passive 802.11 monitor mode:
+//   - SSID patterns: Flock-XXXXXX (6 hex), test_flck (CVE-2025-59409),
+//     any *flock* / *flck* substring
+//   - Source MAC OUI matched against known Flock + contract-mfr prefixes
+//   - Hidden-SSID alerts (one per BSSID per session, ring-buffer dedup)
+// Mirrors the WIFI_SCAN_MODE build of flock-you-wifi-recon as closely as the
+// Marauder runtime allows. Channel hop is driven by WiFiScan::main().
+// ============================================================================
+
+// Flock Safety, high-confidence (direct registration or exclusive use).
+// Field-confirmed: e4:aa:ea (Liteon) caught a Falcon V2 in St. Pete FL via
+// continuous probe-req in STA mode for a hidden SSID.
+static const char* fy_flock_mac_prefixes[] = {
+    "58:8e:81", "cc:cc:cc", "ec:1b:bd", "90:35:ea", "04:0d:84",
+    "f0:82:c0", "1c:34:f1", "38:5b:44", "94:34:69", "b4:e3:f9",
+    "70:c9:4e", "3c:91:80", "d8:f3:bc", "80:30:49", "14:5a:fc",
+    "74:4c:a1", "08:3a:88", "9c:2f:9d", "94:08:53", "e4:aa:ea",
+    "b4:1e:52"
+};
+
+// Contract manufacturers (Liteon Tech, USI). MAC match alone may be a
+// false positive since these OUIs also ship unrelated consumer hardware.
+static const char* fy_flock_mfr_mac_prefixes[] = {
+    "f4:6a:dd", "f8:a2:d6", "e0:0a:f6", "00:f4:8d", "d0:39:57",
+    "e8:d0:fc"
+};
+
+// SoundThinking (formerly ShotSpotter) acoustic gunshot sensors
+static const char* fy_soundthinking_mac_prefixes[] = {
+    "d4:11:d6"
+};
+
+// Hidden-SSID dedup: alert once per unique BSSID per session.
+#define FY_HIDDEN_DEDUP_SIZE 64
+static uint8_t  fy_hidden_bssids[FY_HIDDEN_DEDUP_SIZE][6];
+static uint8_t  fy_hidden_count = 0;
+static uint8_t  fy_hidden_next_slot = 0;
+
+// Session counters
+static uint32_t fy_wifi_match_count = 0;
+static uint32_t fy_wifi_frames_seen = 0;
+static unsigned long fy_last_wifi_stats = 0;
+
+#ifndef FY_WIFI_SCAN_RSSI_MIN
+#define FY_WIFI_SCAN_RSSI_MIN -100
+#endif
+
+static bool fyWifiIsHiddenSSID(const uint8_t* data, uint8_t len) {
+    if (len == 0) return true;
+    for (uint8_t i = 0; i < len; i++) {
+        if (data[i] != 0) return false;
+    }
+    return true;
+}
+
+static bool fyWifiSeenHidden(const uint8_t* mac) {
+    uint8_t n = fy_hidden_count < FY_HIDDEN_DEDUP_SIZE ? fy_hidden_count : FY_HIDDEN_DEDUP_SIZE;
+    for (uint8_t i = 0; i < n; i++) {
+        if (memcmp(fy_hidden_bssids[i], mac, 6) == 0) return true;
+    }
+    return false;
+}
+
+static void fyWifiAddHidden(const uint8_t* mac) {
+    if (fy_hidden_count < FY_HIDDEN_DEDUP_SIZE) {
+        memcpy(fy_hidden_bssids[fy_hidden_count], mac, 6);
+        fy_hidden_count++;
+    } else {
+        memcpy(fy_hidden_bssids[fy_hidden_next_slot], mac, 6);
+        fy_hidden_next_slot = (fy_hidden_next_slot + 1) % FY_HIDDEN_DEDUP_SIZE;
+    }
+}
+
+static const char* fyUptimeStr() {
+    static char buf[20];
+    unsigned long ms = millis();
+    unsigned long s = ms / 1000;
+    snprintf(buf, sizeof(buf), "+%02lu:%02lu:%02lu.%03lu",
+             s / 3600, (s / 60) % 60, s % 60, ms % 1000);
+    return buf;
+}
+
+static bool fyContainsCI(const char* s, size_t len, const char* needle) {
+    size_t nlen = strlen(needle);
+    if (nlen == 0 || len < nlen) return false;
+    for (size_t i = 0; i + nlen <= len; i++) {
+        if (strncasecmp(s + i, needle, nlen) == 0) return true;
+    }
+    return false;
+}
+
+static const char* fyWifiMatchSSID(const char* ssid, size_t len) {
+    if (len == 9 && strncasecmp(ssid, "test_flck", 9) == 0) return "ssid_exact";
+    if (len == 12 && strncasecmp(ssid, "Flock-", 6) == 0) {
+        bool all_hex = true;
+        for (size_t i = 6; i < 12; i++) {
+            char c = ssid[i];
+            if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') ||
+                  (c >= 'a' && c <= 'f'))) { all_hex = false; break; }
+        }
+        if (all_hex) return "ssid_pattern";
+    }
+    if (fyContainsCI(ssid, len, "flock")) return "ssid_substr_flock";
+    if (fyContainsCI(ssid, len, "flck"))  return "ssid_substr_flck";
+    return nullptr;
+}
+
+static bool fyMacPrefixIn(const char* prefix, const char** list, size_t list_len) {
+    for (size_t i = 0; i < list_len; i++) {
+        if (strncasecmp(prefix, list[i], 8) == 0) return true;
+    }
+    return false;
+}
+
+static const char* fyWifiMatchOUI(const uint8_t* mac) {
+    char prefix[9];
+    snprintf(prefix, sizeof(prefix), "%02x:%02x:%02x", mac[0], mac[1], mac[2]);
+    if (fyMacPrefixIn(prefix, fy_flock_mac_prefixes,
+                      sizeof(fy_flock_mac_prefixes)/sizeof(fy_flock_mac_prefixes[0])))
+        return "oui_flock";
+    if (fyMacPrefixIn(prefix, fy_soundthinking_mac_prefixes,
+                      sizeof(fy_soundthinking_mac_prefixes)/sizeof(fy_soundthinking_mac_prefixes[0])))
+        return "oui_shotspotter";
+    if (fyMacPrefixIn(prefix, fy_flock_mfr_mac_prefixes,
+                      sizeof(fy_flock_mfr_mac_prefixes)/sizeof(fy_flock_mfr_mac_prefixes[0])))
+        return "oui_mfr";
+    return nullptr;
+}
+
+void WiFiScan::flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
+    extern WiFiScan wifi_scan_obj;
+    if (type != WIFI_PKT_MGMT) return;
+    const wifi_promiscuous_pkt_t* pkt = (const wifi_promiscuous_pkt_t*)buf;
+    int rssi = pkt->rx_ctrl.rssi;
+    if (rssi < FY_WIFI_SCAN_RSSI_MIN) return;
+
+    fy_wifi_frames_seen++;
+
+    const uint8_t* payload = pkt->payload;
+    size_t payload_len = pkt->rx_ctrl.sig_len;
+    if (payload_len > 4) payload_len -= 4;
+    if (payload_len < 24) return;
+
+    uint8_t fc = payload[0];
+    uint8_t frame_type = (fc >> 2) & 0x3;
+    uint8_t subtype    = (fc >> 4) & 0xF;
+    if (frame_type != 0) return;
+
+    const uint8_t* src_mac = payload + 10;
+    const uint8_t* tagged = nullptr;
+    const char* frame_name = nullptr;
+
+    if (subtype == 0x8 || subtype == 0x5) {
+        if (payload_len < 36) return;
+        tagged = payload + 36;
+        frame_name = (subtype == 0x8) ? "BEACON" : "PROBE_RESP";
+    } else if (subtype == 0x4) {
+        tagged = payload + 24;
+        frame_name = "PROBE_REQ";
+    } else {
+        return;
+    }
+
+    const uint8_t* end = payload + payload_len;
+    const uint8_t* ssid_data = nullptr;
+    uint8_t ssid_len = 0;
+
+    while (tagged + 2 <= end) {
+        uint8_t tag_id = tagged[0];
+        uint8_t tag_len = tagged[1];
+        if (tagged + 2 + tag_len > end) break;
+        if (tag_id == 0) {
+            ssid_data = tagged + 2;
+            ssid_len = tag_len;
+            break;
+        }
+        tagged += 2 + tag_len;
+    }
+
+    bool is_beacon_or_resp = (subtype == 0x8 || subtype == 0x5);
+    bool is_hidden = is_beacon_or_resp &&
+                     fyWifiIsHiddenSSID(ssid_data ? ssid_data : (const uint8_t*)"", ssid_len);
+    if (is_hidden && !fyWifiSeenHidden(src_mac)) {
+        fyWifiAddHidden(src_mac);
+        const char* oui_tag = fyWifiMatchOUI(src_mac);
+        Serial.printf("\n[FLOCK-WIFI] [%s] ######## HIDDEN SSID DETECTED ########\n"
+                      "[FLOCK-WIFI]   bssid:   %02x:%02x:%02x:%02x:%02x:%02x\n"
+                      "[FLOCK-WIFI]   frame:   %s   ch:%d   rssi:%d\n"
+                      "[FLOCK-WIFI]   oui:     %s\n"
+                      "[FLOCK-WIFI]   >>> FLAGGED FOR REVIEW (#%u) <<<\n"
+                      "[FLOCK-WIFI] ######################################\n\n",
+                      fyUptimeStr(),
+                      src_mac[0], src_mac[1], src_mac[2],
+                      src_mac[3], src_mac[4], src_mac[5],
+                      frame_name, wifi_scan_obj.set_channel, rssi,
+                      oui_tag ? oui_tag : "unknown",
+                      fy_hidden_count);
+    }
+
+    const char* rule = nullptr;
+    if (ssid_data && ssid_len > 0 && !is_hidden) {
+        rule = fyWifiMatchSSID((const char*)ssid_data, ssid_len);
+    }
+    const char* oui_rule = fyWifiMatchOUI(src_mac);
+    if (!rule) rule = oui_rule;
+
+    if (rule) {
+        fy_wifi_match_count++;
+        char ssid_str[33] = "<hidden>";
+        if (ssid_data && ssid_len > 0) {
+            size_t c = ssid_len < 32 ? ssid_len : 32;
+            memcpy(ssid_str, ssid_data, c);
+            ssid_str[c] = '\0';
+        }
+        Serial.printf("[FLOCK-WIFI] [%s] MATCH(%s)%s %s "
+                      "src:%02x:%02x:%02x:%02x:%02x:%02x ssid:\"%s\" "
+                      "rssi:%d ch:%d hits:%u\n",
+                      fyUptimeStr(), rule,
+                      (oui_rule && oui_rule != rule) ? "+oui" : "",
+                      frame_name,
+                      src_mac[0], src_mac[1], src_mac[2],
+                      src_mac[3], src_mac[4], src_mac[5],
+                      ssid_str, rssi, wifi_scan_obj.set_channel, fy_wifi_match_count);
+        #ifdef HAS_SCREEN
+          {
+            String line = String("MATCH ") + rule + " " + ssid_str + " " +
+                          String(rssi) + "dBm ch" + String(wifi_scan_obj.set_channel);
+            display_obj.display_buffer->add(line);
+          }
+        #endif
+        // Capture the matched frame to SD pcap so post-walk analysis works.
+        buffer_obj.append(pkt, pkt->rx_ctrl.sig_len);
+    }
+
+    // 10s heartbeat so a quiet pole still proves the rig is alive.
+    unsigned long now = millis();
+    if (now - fy_last_wifi_stats >= 10000) {
+        fy_last_wifi_stats = now;
+        Serial.printf("[FLOCK-WIFI] [%s] frames_seen:%u matches:%u hidden_flagged:%u ch:%d\n",
+                      fyUptimeStr(), fy_wifi_frames_seen, fy_wifi_match_count,
+                      fy_hidden_count, wifi_scan_obj.set_channel);
+    }
+}
+
+void WiFiScan::RunFlockWifiScan(uint8_t scan_mode, uint16_t color) {
+    fy_wifi_match_count = 0;
+    fy_wifi_frames_seen = 0;
+    fy_hidden_count = 0;
+    fy_hidden_next_slot = 0;
+    fy_last_wifi_stats = millis();
+
+    startPcap(F("flockwifi"));
+
+    this->setLEDMode(MODE_SNIFF);
+
+    #ifdef HAS_SCREEN
+      this->setupScanDisplayArea(TFT_BLACK, color);
+      #ifdef HAS_FULL_SCREEN
+        display_obj.tft.fillRect(0, 16, TFT_WIDTH, 16, color);
+        display_obj.tft.drawCentreString("WiFi Flock Sniff", TFT_WIDTH / 2, 16, 2);
+      #endif
+      #ifdef HAS_ILI9341
+        display_obj.touchToExit();
+      #endif
+      display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
+      display_obj.tftDrawChannelScaleButtons(set_channel, false);
+      display_obj.tftDrawExitScaleButtons(false);
+      display_obj.tftDrawChanHopButton(false, settings_obj.loadSetting<bool>("ChanHop"));
+    #endif
+
+    esp_wifi_init(&cfg2);
+    #ifdef HAS_IDF_3
+      esp_wifi_set_country(&country);
+      esp_event_loop_create_default();
+    #endif
+
+    // Mgmt-frame-only filter so we ignore data/control noise
+    wifi_promiscuous_filter_t filter = {};
+    filter.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT;
+    esp_wifi_set_promiscuous_filter(&filter);
+
+    this->setWiFiMode(WIFI_MODE_NULL, flockWifiSnifferCallback);
+    this->changeChannel(this->set_channel);
+    this->wifi_initialized = true;
+    initTime = millis();
+
+    Serial.println(F("[FLOCK-WIFI] Signatures: Flock-XXXXXX / test_flck / *flock* / OUI list"));
+    Serial.printf("[FLOCK-WIFI] RSSI threshold: %d dBm\n", FY_WIFI_SCAN_RSSI_MIN);
+    Serial.println(F("[FLOCK-WIFI] Channel hop driven by Marauder main() loop"));
 }

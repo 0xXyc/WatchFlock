@@ -157,8 +157,9 @@
 #define BT_SCAN_RAYBAN 81
 #define BT_ATTACK_APPLE_JUICE 82
 #define WIFI_SCAN_DISPLAY_AP_INFO 83
+#define WIFI_SCAN_FLOCK_AP 84  // Swiz: passive WiFi-side Flock ALPR detector (probe-req + OUI)
 
-#define WIFI_ATTACK_FUNNY_BEACON 99 
+#define WIFI_ATTACK_FUNNY_BEACON 99
 
 #define BASE_MULTIPLIER 4
 
@@ -656,6 +657,7 @@ class WiFiScan
     void RunDeauthScan(uint8_t scan_mode, uint16_t color);
     void RunEapolScan(uint8_t scan_mode, uint16_t color);
     void RunProbeScan(uint8_t scan_mode, uint16_t color);
+    void RunFlockWifiScan(uint8_t scan_mode, uint16_t color);  // Swiz: WiFi-side Flock detector
     void RunSAEScan(uint8_t scan_mode, uint16_t color);
     void RunPacketMonitor(uint8_t scan_mode, uint16_t color);
     void RunBluetoothScan(uint8_t scan_mode, uint16_t color);
@@ -919,6 +921,7 @@ class WiFiScan
     static void getMAC(char *addr, uint8_t* data, uint16_t offset);
     static void getMAC(uint8_t* mac, const uint8_t* data, uint16_t offset);
     static void beaconSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
+    static void flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);  // Swiz: Flock WiFi probe-req
     //static void rawSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
     //static void stationSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
     //static void apSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);

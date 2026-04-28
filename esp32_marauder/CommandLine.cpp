@@ -248,6 +248,7 @@ void CommandLine::runCommand(String input) {
     Serial.println(HELP_SNIFF_RAW_CMD);
     Serial.println(HELP_SNIFF_BEACON_CMD);
     Serial.println(HELP_SNIFF_PROBE_CMD);
+    Serial.println(HELP_SNIFF_FLOCK_WIFI_CMD);
     Serial.println(HELP_SNIFF_PWN_CMD);
     Serial.println(HELP_SNIFF_PINESCAN_CMD);
     Serial.println(HELP_SNIFF_MULTISSID_CMD);
@@ -667,6 +668,10 @@ void CommandLine::runCommand(String input) {
     // Probe sniff
     else if (cmd_args.get(0) == SNIFF_PROBE_CMD) {
       this->startScanFromCLI(WIFI_SCAN_PROBE, TFT_MAGENTA, "Probe sniff");
+    }
+    // Flock WiFi sniff (Swiz: passive Flock ALPR detector)
+    else if (cmd_args.get(0) == SNIFF_FLOCK_WIFI_CMD) {
+      this->startScanFromCLI(WIFI_SCAN_FLOCK_AP, TFT_ORANGE, "Flock WiFi sniff");
     }
     // Deauth sniff
     else if (cmd_args.get(0) == SNIFF_DEAUTH_CMD) {
