@@ -10572,9 +10572,18 @@ static uint8_t  fy_hidden_bssids[FY_HIDDEN_DEDUP_SIZE][6];
 static uint8_t  fy_hidden_count = 0;
 static uint8_t  fy_hidden_next_slot = 0;
 
+// Visible-SSID dedup: count unique BSSIDs that broadcast a non-hidden SSID.
+// Same ring pattern as hidden-SSID dedup. Used for the visible_macs counter
+// in the SwizFlockHunter Flipper protocol stream.
+#define FY_VISIBLE_DEDUP_SIZE 64
+static uint8_t  fy_visible_bssids[FY_VISIBLE_DEDUP_SIZE][6];
+static uint8_t  fy_visible_count = 0;
+static uint8_t  fy_visible_next_slot = 0;
+
 // Session counters
 static uint32_t fy_wifi_match_count = 0;
 static uint32_t fy_wifi_frames_seen = 0;
+static uint32_t fy_wifi_mgmt_seen = 0;
 static unsigned long fy_last_wifi_stats = 0;
 
 #ifndef FY_WIFI_SCAN_RSSI_MIN
@@ -10604,6 +10613,24 @@ static void fyWifiAddHidden(const uint8_t* mac) {
     } else {
         memcpy(fy_hidden_bssids[fy_hidden_next_slot], mac, 6);
         fy_hidden_next_slot = (fy_hidden_next_slot + 1) % FY_HIDDEN_DEDUP_SIZE;
+    }
+}
+
+static bool fyWifiSeenVisible(const uint8_t* mac) {
+    uint8_t n = fy_visible_count < FY_VISIBLE_DEDUP_SIZE ? fy_visible_count : FY_VISIBLE_DEDUP_SIZE;
+    for (uint8_t i = 0; i < n; i++) {
+        if (memcmp(fy_visible_bssids[i], mac, 6) == 0) return true;
+    }
+    return false;
+}
+
+static void fyWifiAddVisible(const uint8_t* mac) {
+    if (fy_visible_count < FY_VISIBLE_DEDUP_SIZE) {
+        memcpy(fy_visible_bssids[fy_visible_count], mac, 6);
+        fy_visible_count++;
+    } else {
+        memcpy(fy_visible_bssids[fy_visible_next_slot], mac, 6);
+        fy_visible_next_slot = (fy_visible_next_slot + 1) % FY_VISIBLE_DEDUP_SIZE;
     }
 }
 
@@ -10682,6 +10709,8 @@ void WiFiScan::flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t t
     uint8_t subtype    = (fc >> 4) & 0xF;
     if (frame_type != 0) return;
 
+    fy_wifi_mgmt_seen++;
+
     const uint8_t* src_mac = payload + 10;
     const uint8_t* tagged = nullptr;
     const char* frame_name = nullptr;
@@ -10716,21 +10745,37 @@ void WiFiScan::flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t t
     bool is_beacon_or_resp = (subtype == 0x8 || subtype == 0x5);
     bool is_hidden = is_beacon_or_resp &&
                      fyWifiIsHiddenSSID(ssid_data ? ssid_data : (const uint8_t*)"", ssid_len);
+
+    // Track visible vs hidden BSSIDs for the visible_macs / hidden_macs counters.
+    // Probe requests are excluded from these counts since they come from clients,
+    // not APs. Only beacons and probe responses identify an AP.
+    if (is_beacon_or_resp && !is_hidden) {
+        if (!fyWifiSeenVisible(src_mac)) fyWifiAddVisible(src_mac);
+    }
+
     if (is_hidden && !fyWifiSeenHidden(src_mac)) {
         fyWifiAddHidden(src_mac);
         const char* oui_tag = fyWifiMatchOUI(src_mac);
-        Serial.printf("\n[FLOCK-WIFI] [%s] ######## HIDDEN SSID DETECTED ########\n"
-                      "[FLOCK-WIFI]   bssid:   %02x:%02x:%02x:%02x:%02x:%02x\n"
-                      "[FLOCK-WIFI]   frame:   %s   ch:%d   rssi:%d\n"
-                      "[FLOCK-WIFI]   oui:     %s\n"
-                      "[FLOCK-WIFI]   >>> FLAGGED FOR REVIEW (#%u) <<<\n"
-                      "[FLOCK-WIFI] ######################################\n\n",
-                      fyUptimeStr(),
-                      src_mac[0], src_mac[1], src_mac[2],
-                      src_mac[3], src_mac[4], src_mac[5],
-                      frame_name, wifi_scan_obj.set_channel, rssi,
-                      oui_tag ? oui_tag : "unknown",
-                      fy_hidden_count);
+        #ifdef SWIZ_FLIPPER_PROTOCOL
+          Serial.printf("HIDE mac=%02x:%02x:%02x:%02x:%02x:%02x oui=%s rssi=%d ch=%d\n",
+                        src_mac[0], src_mac[1], src_mac[2],
+                        src_mac[3], src_mac[4], src_mac[5],
+                        oui_tag ? oui_tag : "unknown",
+                        rssi, wifi_scan_obj.set_channel);
+        #else
+          Serial.printf("\n[FLOCK-WIFI] [%s] ######## HIDDEN SSID DETECTED ########\n"
+                        "[FLOCK-WIFI]   bssid:   %02x:%02x:%02x:%02x:%02x:%02x\n"
+                        "[FLOCK-WIFI]   frame:   %s   ch:%d   rssi:%d\n"
+                        "[FLOCK-WIFI]   oui:     %s\n"
+                        "[FLOCK-WIFI]   >>> FLAGGED FOR REVIEW (#%u) <<<\n"
+                        "[FLOCK-WIFI] ######################################\n\n",
+                        fyUptimeStr(),
+                        src_mac[0], src_mac[1], src_mac[2],
+                        src_mac[3], src_mac[4], src_mac[5],
+                        frame_name, wifi_scan_obj.set_channel, rssi,
+                        oui_tag ? oui_tag : "unknown",
+                        fy_hidden_count);
+        #endif
     }
 
     const char* rule = nullptr;
@@ -10748,15 +10793,50 @@ void WiFiScan::flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t t
             memcpy(ssid_str, ssid_data, c);
             ssid_str[c] = '\0';
         }
-        Serial.printf("[FLOCK-WIFI] [%s] MATCH(%s)%s %s "
-                      "src:%02x:%02x:%02x:%02x:%02x:%02x ssid:\"%s\" "
-                      "rssi:%d ch:%d hits:%u\n",
-                      fyUptimeStr(), rule,
-                      (oui_rule && oui_rule != rule) ? "+oui" : "",
-                      frame_name,
-                      src_mac[0], src_mac[1], src_mac[2],
-                      src_mac[3], src_mac[4], src_mac[5],
-                      ssid_str, rssi, wifi_scan_obj.set_channel, fy_wifi_match_count);
+
+        // Confidence tier (mirrors triage.py logic on the laptop side).
+        // HIGH = direct/exclusive Flock OUI, exact dev SSID, or Flock-XXXXXX hex.
+        // MEDIUM = contract-mfr OUI (Liteon/USI), needs cross-check.
+        // LOW = SSID substring match alone, false-positive prone.
+        const char* conf = "LOW";
+        if (strcmp(rule, "oui_flock") == 0 ||
+            strcmp(rule, "oui_shotspotter") == 0 ||
+            strcmp(rule, "ssid_exact") == 0 ||
+            strcmp(rule, "ssid_pattern") == 0) {
+            conf = "HIGH";
+        } else if (strcmp(rule, "oui_mfr") == 0) {
+            conf = "MEDIUM";
+        }
+
+        #ifdef SWIZ_FLIPPER_PROTOCOL
+          // Tagged single-line record for the SwizFlockHunter Flipper app.
+          // ssid="hidden" is a sentinel meaning the AP did not advertise an
+          // SSID; quoted "..." is a real SSID string (no embedded quotes).
+          if (ssid_data && ssid_len > 0) {
+              Serial.printf("HIT mac=%02x:%02x:%02x:%02x:%02x:%02x oui=%02x:%02x:%02x rule=%s ssid=\"%s\" rssi=%d ch=%d conf=%s\n",
+                            src_mac[0], src_mac[1], src_mac[2],
+                            src_mac[3], src_mac[4], src_mac[5],
+                            src_mac[0], src_mac[1], src_mac[2],
+                            rule, ssid_str, rssi, wifi_scan_obj.set_channel, conf);
+          } else {
+              Serial.printf("HIT mac=%02x:%02x:%02x:%02x:%02x:%02x oui=%02x:%02x:%02x rule=%s ssid=hidden rssi=%d ch=%d conf=%s\n",
+                            src_mac[0], src_mac[1], src_mac[2],
+                            src_mac[3], src_mac[4], src_mac[5],
+                            src_mac[0], src_mac[1], src_mac[2],
+                            rule, rssi, wifi_scan_obj.set_channel, conf);
+          }
+        #else
+          Serial.printf("[FLOCK-WIFI] [%s] MATCH(%s)%s %s "
+                        "src:%02x:%02x:%02x:%02x:%02x:%02x ssid:\"%s\" "
+                        "rssi:%d ch:%d hits:%u\n",
+                        fyUptimeStr(), rule,
+                        (oui_rule && oui_rule != rule) ? "+oui" : "",
+                        frame_name,
+                        src_mac[0], src_mac[1], src_mac[2],
+                        src_mac[3], src_mac[4], src_mac[5],
+                        ssid_str, rssi, wifi_scan_obj.set_channel, fy_wifi_match_count);
+        #endif
+
         #ifdef HAS_SCREEN
           {
             String line = String("MATCH ") + rule + " " + ssid_str + " " +
@@ -10772,18 +10852,35 @@ void WiFiScan::flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t t
     unsigned long now = millis();
     if (now - fy_last_wifi_stats >= 10000) {
         fy_last_wifi_stats = now;
-        Serial.printf("[FLOCK-WIFI] [%s] frames_seen:%u matches:%u hidden_flagged:%u ch:%d\n",
-                      fyUptimeStr(), fy_wifi_frames_seen, fy_wifi_match_count,
-                      fy_hidden_count, wifi_scan_obj.set_channel);
+        #ifdef SWIZ_FLIPPER_PROTOCOL
+          Serial.printf("STAT frames=%u mgmt=%u visible=%u hidden=%u flagged=%u hits=%u ch=%d\n",
+                        fy_wifi_frames_seen, fy_wifi_mgmt_seen,
+                        fy_visible_count, fy_hidden_count,
+                        fy_hidden_count, fy_wifi_match_count,
+                        wifi_scan_obj.set_channel);
+        #else
+          Serial.printf("[FLOCK-WIFI] [%s] frames_seen:%u matches:%u hidden_flagged:%u ch:%d\n",
+                        fyUptimeStr(), fy_wifi_frames_seen, fy_wifi_match_count,
+                        fy_hidden_count, wifi_scan_obj.set_channel);
+        #endif
     }
 }
 
 void WiFiScan::RunFlockWifiScan(uint8_t scan_mode, uint16_t color) {
     fy_wifi_match_count = 0;
     fy_wifi_frames_seen = 0;
+    fy_wifi_mgmt_seen = 0;
     fy_hidden_count = 0;
     fy_hidden_next_slot = 0;
+    fy_visible_count = 0;
+    fy_visible_next_slot = 0;
     fy_last_wifi_stats = millis();
+
+    #ifdef SWIZ_FLIPPER_PROTOCOL
+      // Boot record so the Flipper app can confirm it's talking to a fork build
+      // with the protocol on, not stock Marauder. proto=1 lets us version later.
+      Serial.println(F("SWIZ ready proto=1"));
+    #endif
 
     startPcap(F("flockwifi"));
 
@@ -10820,7 +10917,9 @@ void WiFiScan::RunFlockWifiScan(uint8_t scan_mode, uint16_t color) {
     this->wifi_initialized = true;
     initTime = millis();
 
-    Serial.println(F("[FLOCK-WIFI] Signatures: Flock-XXXXXX / test_flck / *flock* / OUI list"));
-    Serial.printf("[FLOCK-WIFI] RSSI threshold: %d dBm\n", FY_WIFI_SCAN_RSSI_MIN);
-    Serial.println(F("[FLOCK-WIFI] Channel hop driven by Marauder main() loop"));
+    #ifndef SWIZ_FLIPPER_PROTOCOL
+      Serial.println(F("[FLOCK-WIFI] Signatures: Flock-XXXXXX / test_flck / *flock* / OUI list"));
+      Serial.printf("[FLOCK-WIFI] RSSI threshold: %d dBm\n", FY_WIFI_SCAN_RSSI_MIN);
+      Serial.println(F("[FLOCK-WIFI] Channel hop driven by Marauder main() loop"));
+    #endif
 }
