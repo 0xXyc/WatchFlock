@@ -1,6 +1,11 @@
-# Build & Flash: Marauder Fork with WiFi Flock Sniff (ESP32-C5)
+# Build & Flash: WatchFlock (ESP32-C5)
 
-This fork adds a passive WiFi-side Flock Safety ALPR detector to ESP32Marauder. The detection logic is ported from `~/repos/flock-you-wifi-recon` (Swiz Security). It runs as a new scan mode `WIFI_SCAN_FLOCK_AP` alongside the upstream BLE-based `BT_SCAN_FLOCK`, which it replaces in practice (BLE-only Flock detection misses solar-only Falcon V2 installs).
+WatchFlock is the ESP32-C5 firmware for spotting Flock Safety ALPRs and SoundThinking sensors. Two new scan modes on top of upstream Marauder:
+
+- **`WIFI_SCAN_FLOCK_AP`** (CLI: `sniffflockwifi`) — passive 802.11 monitor mode, hops channels, matches probe-req / probe-resp / beacon frames against Flock OUI + SSID rules. Catches solar-only Falcon V2s that never advertise BLE.
+- **`BT_SCAN_FLOCK_BLE`** (CLI: `sniffflockble`) — pure-BLE NimBLE scan, matches XUNTONG mfg ID `0x09C8` for Penguin batteries. WiFi radio is forced off for clean RF.
+
+Pairs with the [WatchFlock-Hunter](https://github.com/0xXyc/SwizFlockHunter) Flipper Zero FAP via the SWIZ-protocol tagged-text records the firmware emits over UART when built with `-DSWIZ_FLIPPER_PROTOCOL`.
 
 ## Why this exists
 
@@ -21,9 +26,25 @@ The WROVER-E will not work. Marauder has no WROVER target, and the adapter is ke
 ## Prerequisites
 
 - Arduino IDE 2.x (or arduino-cli)
-- ESP32 Arduino core 3.x (3.0.4+ for proper C5 support, ships IDF 5.3+)
+- **ESP32 Arduino core 3.3.0** (NOT 3.3.8 — 3.3.8 has a PSRAM init regression on the N8R8 chip variant that crashes the bootloader with `MSPI Timing: Failed to allocate dummy cacheline for PSRAM memory barrier!`)
 - Python 3.10+ for `c5_flasher.py`
 - USB-C cable for the C5 DevKit
+
+## Build flags that work
+
+Confirmed working `arduino-cli` invocation as of May 2026:
+
+```bash
+arduino-cli compile \
+  -b "esp32:esp32:esp32c5:FlashSize=8M,PartitionScheme=default_8MB,PSRAM=enabled,CDCOnBoot=default" \
+  --build-property "compiler.cpp.extra_flags=-DMARAUDER_C5 -DSWIZ_FLIPPER_PROTOCOL" \
+  --build-property "compiler.c.extra_flags=-DMARAUDER_C5 -DSWIZ_FLIPPER_PROTOCOL" \
+  --libraries ./libraries \
+  --output-dir ./build \
+  esp32_marauder
+```
+
+`CDCOnBoot=default` (not `cdc`) is required — `CDCOnBoot=cdc` masks the actual PSRAM error message during boot, making the issue look mysterious.
 
 Install ESP32 core 3.x via Arduino IDE Boards Manager:
 

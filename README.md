@@ -1,26 +1,48 @@
-# FlockWiFiMarauder
+# WatchFlock
 
-Marauder fork that finds Flock ALPRs over WiFi. Stock detection is BLE-only and misses any pole without an external battery, which is most of them.
+ESP32-C5 firmware for spotting **Flock Safety** ALPR cameras and **SoundThinking** (formerly ShotSpotter) acoustic gunshot sensors in the wild. Privacy-research tooling — passive detection only, no jamming, no offensive payloads.
 
-Fork of [justcallmekoko/ESP32Marauder](https://github.com/justcallmekoko/ESP32Marauder). All credit for the firmware goes to kokollc. This fork adds one scan mode on top.
+Fork of [justcallmekoko/ESP32Marauder](https://github.com/justcallmekoko/ESP32Marauder). All credit for the underlying firmware goes to kokollc. This fork adds three things: a WiFi-side ALPR detector, a BLE-side Penguin-battery detector, and a tagged-text protocol that streams hits to a Flipper Zero companion app over UART.
 
-## What's new
+## What this fork adds
 
-A new scan mode `WIFI_SCAN_FLOCK_AP`. In the menu it's at `WiFi > Sniffers > WiFi Flock Sniff`. Over serial it's `sniffflockwifi`. It runs the WiFi radio in promiscuous mode, hops channels, and watches probe requests, beacons, and probe responses for:
+| Mode | CLI command | Detects |
+|------|-------------|---------|
+| **`WIFI_SCAN_FLOCK_AP`** | `sniffflockwifi [-b 2g\|5g\|all]` | Pole-mounted Falcon V2s probing for hidden uplink SSIDs |
+| **`BT_SCAN_FLOCK_BLE`** | `sniffflockble` | External Penguin batteries advertising via BLE (XUNTONG mfg ID `0x09C8`) |
+| **`SWIZ_FLIPPER_PROTOCOL`** *(compile flag)* | — | Emits tagged-text `HIT` / `STAT` / `HIDE` / `SWIZ ready` records the [WatchFlock-Hunter](https://github.com/0xXyc/SwizFlockHunter) Flipper FAP parses |
 
-- 21 high-confidence Flock OUIs (direct IEEE registration plus exclusive use)
-- Contract manufacturer OUIs (Liteon, USI)
-- SSID patterns: `Flock-XXXXXX`, `test_flck` (CVE-2025-59409), any `*flock*` substring
+## Detection rules
 
-Hits go to serial and to a pcap on SD. Hidden SSIDs from a matching OUI get flagged once per BSSID per session.
+**WiFi side** (probe-req, probe-resp, beacon parsing in promiscuous mode):
+
+- 21 direct Flock OUIs incl. `b4:1e:52` (Flock Safety) and `e4:aa:ea` (Liteon, field-confirmed in St. Pete FL)
+- Contract-manufacturer OUIs: Liteon, USI
+- ShotSpotter / SoundThinking OUI `d4:11:d6`
+- SSID patterns: `Flock-XXXXXX`, `test_flck` (CVE-2025-59409), `*flock*` substring (case-insensitive)
+
+**BLE side** (BLE adverts via NimBLE):
+
+- Penguin battery: XUNTONG manufacturer ID `0x09C8` + 10-digit name pattern (or legacy `Penguin-XXXXXXXXXX` / `FS Ext Battery`)
+- Serial extraction: pulls TN-prefix + digits out of the manufacturer data block
+
+Hits are streamed to UART (115200 baud) and dumped to SD as `flockwifi-XXXX.pcap` and `flock-XXXX.pcap` per session, with GPS-tagged CSV when a fix is available.
 
 ## Why
 
-Stock Marauder's "Flock Sniff" looks for BLE chatter from the optional `FS Ext Battery` accessory. Most pole-mounted Falcon V2s run on internal battery plus solar and never advertise BLE. They do continuously probe on WiFi for a hidden uplink SSID. This catches them that way. Field-confirmed in St. Pete FL: Liteon OUI `e4:aa:ea` caught a Falcon V2 in 50 seconds.
+Stock Marauder's "Flock Sniff" only looks for BLE chatter from the optional Penguin battery. Most pole-mounted Falcon V2s run on internal battery + solar and never advertise BLE — but they do continuously probe WiFi for a hidden uplink SSID with predictable OUIs. This fork catches both surfaces.
+
+WatchFlock is for understanding where surveillance hardware is installed in your community — *defensive* recon for journalists, researchers, civil-liberties groups, and curious civilians. It is not a jamming tool.
+
+## Companion app
+
+[**WatchFlock-Hunter**](https://github.com/0xXyc/SwizFlockHunter) is a Flipper Zero FAP that reads the SWIZ-protocol tagged-text records over UART (Flipper GPIO pins 13/14 ↔ kokollc Marauder C5 Adapter). Live dashboard, per-MAC unique counter, haptic + audio alerts on first detection.
 
 ## Build and run
 
-See [BUILD-C5.md](./BUILD-C5.md) for the ESP32-C5-DevKitC-1 + Marauder C5 Adapter + Flipper Zero rig. Companion rig on ESP32-WROVER-E: [flock-you-wifi-recon](https://github.com/0xXyc/flock-you-wifi-recon).
+See [BUILD-C5.md](./BUILD-C5.md). TL;DR: Arduino ESP32 core 3.3.0 (NOT 3.3.8 — PSRAM regression), `sketch_flags=-DMARAUDER_C5 -DSWIZ_FLIPPER_PROTOCOL`, partition scheme `default_8MB`, CDCOnBoot disabled, then flash via `c5_flasher.py`.
+
+Inspired by the [Watch_Dogs](https://en.wikipedia.org/wiki/Watch_Dogs) games — turning the city's sensors back on the people who installed them.
 
 By [Jake / Swiz Security](https://github.com/0xXyc).
 
