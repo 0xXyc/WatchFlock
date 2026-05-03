@@ -13,8 +13,11 @@ void CommandLine::RunSetup() {
   Serial.println(F("         ESP32 Marauder      \n"));
   Serial.println("            " + version_number + "\n");
   Serial.println(F("       By: justcallmekoko\n"));
+  Serial.println(F("--------------------------------"));
+  Serial.println(F("    WatchFlock fork by Swiz"));
+  Serial.println(F("    https://github.com/0xXyc/WatchFlock"));
   Serial.println(F("--------------------------------\n\n"));
-  
+
   Serial.print("> ");
 }
 
@@ -249,6 +252,7 @@ void CommandLine::runCommand(String input) {
     Serial.println(HELP_SNIFF_BEACON_CMD);
     Serial.println(HELP_SNIFF_PROBE_CMD);
     Serial.println(HELP_SNIFF_FLOCK_WIFI_CMD);
+    Serial.println(HELP_SNIFF_FLOCK_BLE_CMD);
     Serial.println(HELP_SNIFF_PWN_CMD);
     Serial.println(HELP_SNIFF_PINESCAN_CMD);
     Serial.println(HELP_SNIFF_MULTISSID_CMD);
@@ -670,8 +674,28 @@ void CommandLine::runCommand(String input) {
       this->startScanFromCLI(WIFI_SCAN_PROBE, TFT_MAGENTA, "Probe sniff");
     }
     // Flock WiFi sniff (Swiz: passive Flock ALPR detector)
+    // Optional: -b 2g|5g|all to restrict the channel hop to a band.
     else if (cmd_args.get(0) == SNIFF_FLOCK_WIFI_CMD) {
+      void fy_flock_set_band(int mode);
+      int band_mode = 0; // ALL
+      for (int i = 1; i < cmd_args.size() - 1; i++) {
+        if (cmd_args.get(i) == "-b") {
+          String v = cmd_args.get(i + 1);
+          v.toLowerCase();
+          if (v == "2g")      band_mode = 1;
+          else if (v == "5g") band_mode = 2;
+          else                band_mode = 0;
+          break;
+        }
+      }
+      fy_flock_set_band(band_mode);
       this->startScanFromCLI(WIFI_SCAN_FLOCK_AP, TFT_ORANGE, "Flock WiFi sniff");
+    }
+    // Flock BLE sniff (Swiz: pure-BLE Penguin detector, WiFi radio off).
+    // Reuses Koko's OG BT_SCAN_FLOCK BLE detection (XUNTONG mfg ID 0x09C8)
+    // but skips RunProbeScan so the 2.4GHz front-end stays dedicated to BLE.
+    else if (cmd_args.get(0) == SNIFF_FLOCK_BLE_CMD) {
+      this->startScanFromCLI(BT_SCAN_FLOCK_BLE, TFT_CYAN, "Flock BLE sniff");
     }
     // Deauth sniff
     else if (cmd_args.get(0) == SNIFF_DEAUTH_CMD) {

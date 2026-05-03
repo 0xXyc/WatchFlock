@@ -158,6 +158,7 @@
 #define BT_ATTACK_APPLE_JUICE 82
 #define WIFI_SCAN_DISPLAY_AP_INFO 83
 #define WIFI_SCAN_FLOCK_AP 84  // Swiz: passive WiFi-side Flock ALPR detector (probe-req + OUI)
+#define BT_SCAN_FLOCK_BLE 85   // Swiz: pure-BLE Flock detector (Penguin batt via XUNTONG 0x09C8); no WiFi radio
 
 #define WIFI_ATTACK_FUNNY_BEACON 99
 

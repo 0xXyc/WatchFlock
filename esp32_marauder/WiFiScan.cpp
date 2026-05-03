@@ -35,11 +35,13 @@ LinkedList<Flipper>* flippers;
 LinkedList<IPAddress>* ipList;
 LinkedList<ProbeReqSsid>* probe_req_ssids;
 
-extern "C" int ieee80211_raw_frame_sanity_check(int32_t arg, int32_t arg2, int32_t arg3){
-    if (arg == 31337)
-      return 1;
-    else
-      return 0;
+// Renamed from `ieee80211_raw_frame_sanity_check` to avoid the multi-def link
+// error against libnet80211.a in ESP-IDF 5.3+ (Arduino core 3.x for the C5).
+// Originally a hack to bypass IDF's frame validation for deauth/beacon-spam
+// injection. Only call site (RunSetup) uses it as a magic-value probe to set
+// wsl_bypass_enabled, so a private stub gives the same result without colliding.
+static int marauder_raw_frame_check(int32_t arg, int32_t arg2, int32_t arg3) {
+    return (arg == 31337) ? 1 : 0;
 }
 
 extern "C" {
@@ -595,7 +597,13 @@ extern "C" {
               wifi_scan_obj.analyzer_name_update = true;
             }
           }
-          else if (wifi_scan_obj.currentScanMode == BT_SCAN_FLOCK) {
+          else if (wifi_scan_obj.currentScanMode == BT_SCAN_FLOCK ||
+                   wifi_scan_obj.currentScanMode == BT_SCAN_FLOCK_BLE) {
+            // Count every BLE advert seen in flock-scan modes, not just the
+            // ones that match the XUNTONG signature. Lets the STAT heartbeat
+            // surface real "RF activity" numbers to the FAP dashboard.
+            wifi_scan_obj.bt_frames++;
+
             #ifndef HAS_NIMBLE_2
               uint8_t* payLoad = advertisedDevice->getPayload();
               size_t len = advertisedDevice->getPayloadLength();
@@ -753,6 +761,27 @@ extern "C" {
               #endif
 
               wifi_scan_obj.flock_devices++;
+
+              #ifdef SWIZ_FLIPPER_PROTOCOL
+                // Tagged HIT for SwizFlockHunter Flipper FAP. ch=0 signals BLE
+                // (no WiFi channel concept); FAP renders that as a "BLE" badge.
+                // rule=ble_penguin so the parser tags this distinctly from WiFi
+                // hits, and conf=HIGH because XUNTONG mfg ID + name pattern is
+                // a strong signal — same gating as the on-device hit logic.
+                if (wifi_scan_obj.currentScanMode == BT_SCAN_FLOCK_BLE) {
+                  unsigned int b[6] = {0};
+                  sscanf(mac.c_str(), "%x:%x:%x:%x:%x:%x",
+                         &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]);
+                  Serial.printf("HIT mac=%02x:%02x:%02x:%02x:%02x:%02x "
+                                "oui=%02x:%02x:%02x rule=ble_penguin "
+                                "ssid=\"%s\" rssi=%d ch=0 conf=HIGH "
+                                "gps=nofix lat= lon= alt= time=\n",
+                                b[0], b[1], b[2], b[3], b[4], b[5],
+                                b[0], b[1], b[2],
+                                serial.length() ? serial.c_str() : "<ble>",
+                                rssi);
+                }
+              #endif
 
               // To-do:
               // track in a list like AirTag / Flipper, if you want
@@ -1206,7 +1235,12 @@ extern "C" {
               wifi_scan_obj.analyzer_name_update = true;
             }
           }
-          else if (wifi_scan_obj.currentScanMode == BT_SCAN_FLOCK) {
+          else if (wifi_scan_obj.currentScanMode == BT_SCAN_FLOCK ||
+                   wifi_scan_obj.currentScanMode == BT_SCAN_FLOCK_BLE) {
+            // Mirror the bt_frames++ from the legacy NimBLE callback path so
+            // the STAT heartbeat reflects BLE activity for both NimBLE versions.
+            wifi_scan_obj.bt_frames++;
+
             #ifndef HAS_NIMBLE_2
               uint8_t* payLoad = advertisedDevice->getPayload();
               size_t len = advertisedDevice->getPayloadLength();
@@ -1269,6 +1303,25 @@ extern "C" {
                   display_obj.loading = true;
                   display_obj.display_buffer->add(display_string);
                   display_obj.loading = false;
+                }
+              #endif
+
+              #ifdef SWIZ_FLIPPER_PROTOCOL
+                // Tagged HIT for SwizFlockHunter Flipper FAP (NimBLE 2 path).
+                // Same record format as the legacy NimBLE path above so the
+                // parser is single-codepath on the FAP side.
+                if (wifi_scan_obj.currentScanMode == BT_SCAN_FLOCK_BLE) {
+                  unsigned int b[6] = {0};
+                  sscanf(mac.c_str(), "%x:%x:%x:%x:%x:%x",
+                         &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]);
+                  Serial.printf("HIT mac=%02x:%02x:%02x:%02x:%02x:%02x "
+                                "oui=%02x:%02x:%02x rule=ble_penguin "
+                                "ssid=\"%s\" rssi=%d ch=0 conf=HIGH "
+                                "gps=nofix lat= lon= alt= time=\n",
+                                b[0], b[1], b[2], b[3], b[4], b[5],
+                                b[0], b[1], b[2],
+                                serial.length() ? serial.c_str() : "<ble>",
+                                rssi);
                 }
               #endif
 
@@ -1550,7 +1603,7 @@ bool WiFiScan::isFlockCamera(const uint8_t* payload, size_t len, const String& n
 }
 
 void WiFiScan::RunSetup() {
-  if (ieee80211_raw_frame_sanity_check(31337, 0, 0) == 1)
+  if (marauder_raw_frame_check(31337, 0, 0) == 1)
     this->wsl_bypass_enabled = true;
   else
     this->wsl_bypass_enabled = false;
@@ -1609,13 +1662,13 @@ void WiFiScan::RunSetup() {
       {0x20, "Green Watch6 Classic 43m"},
     };
     
-    NimBLEDevice::setScanFilterMode(CONFIG_BTDM_SCAN_DUPL_TYPE_DEVICE);
-    NimBLEDevice::setScanDuplicateCacheSize(200);
-    NimBLEDevice::init("");
-    pBLEScan = NimBLEDevice::getScan(); //create new scan
-    this->ble_initialized = true;
-    
-    this->shutdownBLE();
+    // NimBLE 2.5 (shipped with ESP-IDF 5.3+ for the C5) crashes if
+    // NimBLEDevice::deinit() is called immediately after init() — it asserts
+    // in r_ble_ll_mem_generic_data_deinit → multi_heap_free(NULL).
+    // The init→shutdownBLE pattern at boot was a redundant clean-state hack
+    // from older NimBLE; just leave BLE uninitialized at boot. Scan handlers
+    // (RunBluetoothScan) call NimBLEDevice::init() when they actually need it.
+    this->ble_initialized = false;
 
     //Serial.println("Initializing WiFi...");
 
@@ -2038,9 +2091,12 @@ void WiFiScan::StartScan(uint8_t scan_mode, uint16_t color) {
           (scan_mode == BT_SCAN_AIRTAG_MON) ||
           (scan_mode == BT_SCAN_FLIPPER) ||
           (scan_mode == BT_SCAN_FLOCK) ||
+          (scan_mode == BT_SCAN_FLOCK_BLE) ||
           (scan_mode == BT_SCAN_ANALYZER) ||
           (scan_mode == BT_SCAN_SIMPLE) ||
           (scan_mode == BT_SCAN_SIMPLE_TWO)) {
+    // BT_SCAN_FLOCK_BLE intentionally skips RunProbeScan: WiFi stays off so
+    // the 2.4GHz front-end is dedicated to BLE for cleaner penguin detection.
     if (scan_mode == BT_SCAN_FLOCK)
       this->RunProbeScan(scan_mode, color);
 
@@ -2276,12 +2332,18 @@ bool WiFiScan::shutdownBLE() {
 
       delay(100);
 
-
-      NimBLEDevice::deinit();
+      // NimBLE 2.5 (ESP-IDF 5.3+ on the C5) crashes inside r_ble_ll_*_deinit
+      // when NimBLEDevice::deinit() runs while there are dangling scan-callback
+      // references. The pBLEScan->stop() above doesn't fully release them.
+      // Instead of cycling init/deinit per mode switch, we leave NimBLE
+      // initialized for the app lifetime and just stop the scan/advert. The
+      // BT controller idles between scans; WiFi can still grab the 2.4 GHz
+      // radio via the coex arbiter, so mode-switch behavior is preserved.
+      // NimBLEDevice::deinit();
 
       this->_analyzer_value = 0;
       this->bt_frames = 0;
-    
+
       this->ble_initialized = false;
     }
     else {
@@ -2404,6 +2466,7 @@ void WiFiScan::StopScan(uint8_t scan_mode) {
   (currentScanMode == BT_SCAN_AIRTAG_MON) ||
   (currentScanMode == BT_SCAN_FLIPPER) ||
   (currentScanMode == BT_SCAN_FLOCK) ||
+  (currentScanMode == BT_SCAN_FLOCK_BLE) ||
   (currentScanMode == BT_ATTACK_SOUR_APPLE) ||
   (currentScanMode == BT_ATTACK_APPLE_JUICE) ||
   (currentScanMode == BT_ATTACK_SWIFTPAIR_SPAM) ||
@@ -5405,7 +5468,29 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color) {
       display_obj.print_delay_2 = 20;
     #endif
 
+    // Defensive: for BT_SCAN_FLOCK_BLE specifically, force WiFi off here
+    // even if upstream stopscan should already have done it. Without this,
+    // a stale WiFi promiscuous callback can keep firing flockWifiSnifferCallback
+    // after the mode switch, leaking "HIGH 2G Liteon" HITs into a session
+    // the user thinks is BLE-only. Also clears the WiFi-side counters that
+    // would otherwise pollute STAT records via the WiFi callback's STAT
+    // emit path.
+    if (scan_mode == BT_SCAN_FLOCK_BLE) {
+      esp_wifi_set_promiscuous(false);
+      WiFi.mode(WIFI_OFF);
+      this->wifi_initialized = false;
+    }
+
+    #ifdef SWIZ_FLIPPER_PROTOCOL
+      // Boot ack so the SwizFlockHunter Flipper FAP confirms the BLE-only
+      // pipeline is up. Mirrors the WiFi-side ack from RunFlockWifiScan.
+      if (scan_mode == BT_SCAN_FLOCK_BLE) {
+        Serial.println(F("SWIZ ready proto=1"));
+      }
+    #endif
+
     if ((scan_mode == BT_SCAN_FLOCK) ||
+        (scan_mode == BT_SCAN_FLOCK_BLE) ||
         (scan_mode == WIFI_SCAN_WAR_DRIVE) ||
         (scan_mode == WIFI_SCAN_DETECT_FOLLOW) ||
         (scan_mode == BT_SCAN_SIMPLE) ||
@@ -5427,6 +5512,7 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color) {
         (scan_mode == BT_SCAN_AIRTAG_MON) ||
         (scan_mode == BT_SCAN_FLIPPER) ||
         (scan_mode == BT_SCAN_FLOCK) ||
+        (scan_mode == BT_SCAN_FLOCK_BLE) ||
         (scan_mode == BT_SCAN_SIMPLE) ||
         (scan_mode == BT_SCAN_SIMPLE_TWO))
     {
@@ -5445,6 +5531,8 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color) {
             display_obj.tft.drawCentreString("Flipper Sniff", TFT_WIDTH / 2, 16, 2);
           else if (scan_mode == BT_SCAN_FLOCK)
             display_obj.tft.drawCentreString("Flock Sniff", TFT_WIDTH / 2, 16, 2);
+          else if (scan_mode == BT_SCAN_FLOCK_BLE)
+            display_obj.tft.drawCentreString("Flock BLE", TFT_WIDTH / 2, 16, 2);
           else if (scan_mode == BT_SCAN_SIMPLE)
             display_obj.tft.drawCentreString("Simple Sniff", TFT_WIDTH / 2, 16, 2);
           else if (scan_mode == BT_SCAN_SIMPLE_TWO)
@@ -5466,6 +5554,7 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color) {
       else if ((scan_mode == BT_SCAN_FLIPPER) ||
                 (scan_mode == BT_SCAN_RAYBAN) ||
                 (scan_mode == BT_SCAN_FLOCK) ||
+                (scan_mode == BT_SCAN_FLOCK_BLE) ||
                 (scan_mode == BT_SCAN_SIMPLE) ||
                 (scan_mode == BT_SCAN_AIRTAG) ||
                 (scan_mode == BT_SCAN_AIRTAG_MON) ||
@@ -5535,6 +5624,7 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color) {
         (scan_mode == WIFI_SCAN_WAR_DRIVE) ||
         (scan_mode == BT_SCAN_ANALYZER) ||
         (scan_mode == BT_SCAN_FLOCK) ||
+        (scan_mode == BT_SCAN_FLOCK_BLE) ||
         (scan_mode == BT_SCAN_SIMPLE) ||
         (scan_mode == BT_SCAN_SIMPLE_TWO))
       pBLEScan->setDuplicateFilter(false);
@@ -9073,6 +9163,12 @@ void WiFiScan::changeChannel(int chan) {
 }
 
 // Function to cycle to the next channel
+// Runtime band selection for FLOCK_AP scan. Set via `sniffflockwifi -b 2g|5g|all`.
+// Default is dual-band (ALL = 0). Declared at file scope so channelHop can read.
+enum FyBandMode { FY_BAND_ALL = 0, FY_BAND_2G = 1, FY_BAND_5G = 2 };
+static FyBandMode fy_flock_band = FY_BAND_ALL;
+void fy_flock_set_band(int mode) { fy_flock_band = (FyBandMode)mode; }
+
 void WiFiScan::channelHop(bool filtered, bool ranged) {
   bool channel_match = false;
   bool ap_selected = true;
@@ -9113,6 +9209,19 @@ void WiFiScan::channelHop(bool filtered, bool ranged) {
       else {
         top_chan = DUAL_BAND_CHANNELS;
         bot_chan = 0;
+      }
+
+      // Runtime band selection for FLOCK_AP scan. dual_band_channels[] is
+      // [0..13] = 2.4 GHz channels 1-14, [14..50] = 5 GHz channels.
+      if (this->currentScanMode == WIFI_SCAN_FLOCK_AP) {
+        if (fy_flock_band == FY_BAND_2G) {
+          top_chan = 14;
+          bot_chan = 0;
+        } else if (fy_flock_band == FY_BAND_5G) {
+          top_chan = DUAL_BAND_CHANNELS;
+          bot_chan = 14;
+          if (this->dual_band_channel_index < 14) this->dual_band_channel_index = 14;
+        }
       }
 
       if (this->dual_band_channel_index >= top_chan)
@@ -9977,6 +10086,11 @@ void WiFiScan::displayTransmitRate() {
   #endif
 }
 
+// File-scope (not static) so the main-loop hop logic in WiFiScan::main()
+// can read it. Defined below alongside the rest of the fy_* counters.
+unsigned long fy_dwell_until_ms = 0;
+#define FY_DWELL_UNTIL_DECLARED 1
+
 uint16_t WiFiScan::rssiToColor(int8_t rssi) {
   if (rssi >= -25)
     return TFT_GREEN;
@@ -10004,8 +10118,19 @@ void WiFiScan::main(uint32_t currentTime)
   (currentScanMode == WIFI_SCAN_ALL))
   {
     if (currentTime - initTime >= this->channel_hop_delay * HOP_DELAY) {
-      initTime = millis();
-      channelHop();
+      // Dwell-on-hit: only relevant in WIFI_SCAN_FLOCK_AP. If we recently
+      // caught a Flock-rule match on this channel, hold position for
+      // FY_DWELL_MS to catch follow-up frames from the same device. Other
+      // scan modes ignore the dwell flag and hop normally.
+      if (currentScanMode == WIFI_SCAN_FLOCK_AP &&
+          fy_dwell_until_ms != 0 && currentTime < fy_dwell_until_ms) {
+        // still dwelling — skip hop, keep initTime where it was so we
+        // re-check on the next loop iteration
+      } else {
+        fy_dwell_until_ms = 0;
+        initTime = millis();
+        channelHop();
+      }
     }
     if ((currentScanMode == WIFI_SCAN_AP) || 
         (currentScanMode == WIFI_SCAN_PROBE) ||
@@ -10047,6 +10172,7 @@ void WiFiScan::main(uint32_t currentTime)
     }
   }
   else if ((currentScanMode == BT_SCAN_FLOCK) ||
+          (currentScanMode == BT_SCAN_FLOCK_BLE) ||
           (currentScanMode == BT_SCAN_FLIPPER) ||
           (currentScanMode == BT_SCAN_AIRTAG) ||
           (currentScanMode == BT_SCAN_RAYBAN)) {
@@ -10076,6 +10202,28 @@ void WiFiScan::main(uint32_t currentTime)
       #endif
       if (currentScanMode == BT_SCAN_FLOCK)
         channelHop();
+
+      #ifdef SWIZ_FLIPPER_PROTOCOL
+        // Heartbeat STAT for the Flipper FAP. Real values where the BLE world
+        // has equivalents:
+        //   frames  = total BLE adverts received this session (bt_frames)
+        //   mgmt    = same — every BLE advert is a discovery/mgmt-style frame
+        //   visible = same — there's no AP/station distinction in BLE
+        //   hidden  = 0 — no equivalent in BLE
+        //   flagged = flock_devices — Penguin/XUNTONG-mfg-ID matches
+        //   hits    = flock_devices — same metric, kept for FAP counter parity
+        // ch=0 is the BLE sentinel; FAP renders "BLE" in the badge for ch=0.
+        static unsigned long fy_last_ble_stats = 0;
+        if (currentScanMode == BT_SCAN_FLOCK_BLE) {
+          if (currentTime - fy_last_ble_stats >= 2000) {
+            fy_last_ble_stats = currentTime;
+            Serial.printf("STAT frames=%u mgmt=%u visible=%u hidden=0 "
+                          "flagged=%u hits=%u ch=0 gps=nofix lat= lon=\n",
+                          bt_frames, bt_frames, bt_frames,
+                          flock_devices, flock_devices);
+          }
+        }
+      #endif
     }
   }
   else if (currentScanMode == WIFI_PING_SCAN) {
@@ -10586,6 +10734,20 @@ static uint32_t fy_wifi_frames_seen = 0;
 static uint32_t fy_wifi_mgmt_seen = 0;
 static unsigned long fy_last_wifi_stats = 0;
 
+// Dwell-on-hit: when flockWifiSnifferCallback fires a Flock-rule HIT, push
+// fy_dwell_until_ms out by FY_DWELL_MS so the main-loop hop logic stays
+// parked on the current channel for that long. Real Flock cameras emit
+// several probe-reqs from the same channel in quick succession, so dwelling
+// after the first hit dramatically increases the chance of catching the
+// follow-up frames — useful for confidence boosting. Set to 0 = dwell
+// expired = normal hopping resumes. Definition is at the top of file
+// (above WiFiScan::main()) so the hop block can reference it.
+#define FY_DWELL_MS 1500
+
+// fy_flock_band lives near top of file (above channelHop) so all callers see
+// it. The setter function is also defined up there; this is just a comment
+// pointer for future readers.
+
 #ifndef FY_WIFI_SCAN_RSSI_MIN
 #define FY_WIFI_SCAN_RSSI_MIN -100
 #endif
@@ -10785,8 +10947,19 @@ void WiFiScan::flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t t
     const char* oui_rule = fyWifiMatchOUI(src_mac);
     if (!rule) rule = oui_rule;
 
+    #ifdef SWIZ_TEST_MODE
+      // Local-validation only: force-match every probe-req so pcap + CSV
+      // accumulate frames without needing a real Flock pole nearby.
+      // Build WITHOUT this flag for field runs.
+      if (!rule) rule = "test_anyprobe";
+    #endif
+
     if (rule) {
         fy_wifi_match_count++;
+        // Extend the channel-dwell so we stay parked here for FY_DWELL_MS
+        // after the hit lands. Lets follow-up probe-reqs from the same
+        // device land on the same channel before we hop away.
+        fy_dwell_until_ms = millis() + FY_DWELL_MS;
         char ssid_str[33] = "<hidden>";
         if (ssid_data && ssid_len > 0) {
             size_t c = ssid_len < 32 ? ssid_len : 32;
@@ -10812,18 +10985,32 @@ void WiFiScan::flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t t
           // Tagged single-line record for the SwizFlockHunter Flipper app.
           // ssid="hidden" is a sentinel meaning the AP did not advertise an
           // SSID; quoted "..." is a real SSID string (no embedded quotes).
+          // gps=ok appends lat/lon/alt/time; gps=nofix omits them.
+          const char* gps_state = "nofix";
+          String lat = "", lon = "", alt = "", dt = "";
+          #ifdef HAS_GPS
+            if (gps_obj.getGpsModuleStatus() && gps_obj.getFixStatus()) {
+                gps_state = "ok";
+                lat = gps_obj.getLat();
+                lon = gps_obj.getLon();
+                alt = gps_obj.getAlt();
+                dt  = gps_obj.getDatetime();
+            }
+          #endif
           if (ssid_data && ssid_len > 0) {
-              Serial.printf("HIT mac=%02x:%02x:%02x:%02x:%02x:%02x oui=%02x:%02x:%02x rule=%s ssid=\"%s\" rssi=%d ch=%d conf=%s\n",
+              Serial.printf("HIT mac=%02x:%02x:%02x:%02x:%02x:%02x oui=%02x:%02x:%02x rule=%s ssid=\"%s\" rssi=%d ch=%d conf=%s gps=%s lat=%s lon=%s alt=%s time=%s\n",
                             src_mac[0], src_mac[1], src_mac[2],
                             src_mac[3], src_mac[4], src_mac[5],
                             src_mac[0], src_mac[1], src_mac[2],
-                            rule, ssid_str, rssi, wifi_scan_obj.set_channel, conf);
+                            rule, ssid_str, rssi, wifi_scan_obj.set_channel, conf,
+                            gps_state, lat.c_str(), lon.c_str(), alt.c_str(), dt.c_str());
           } else {
-              Serial.printf("HIT mac=%02x:%02x:%02x:%02x:%02x:%02x oui=%02x:%02x:%02x rule=%s ssid=hidden rssi=%d ch=%d conf=%s\n",
+              Serial.printf("HIT mac=%02x:%02x:%02x:%02x:%02x:%02x oui=%02x:%02x:%02x rule=%s ssid=hidden rssi=%d ch=%d conf=%s gps=%s lat=%s lon=%s alt=%s time=%s\n",
                             src_mac[0], src_mac[1], src_mac[2],
                             src_mac[3], src_mac[4], src_mac[5],
                             src_mac[0], src_mac[1], src_mac[2],
-                            rule, rssi, wifi_scan_obj.set_channel, conf);
+                            rule, rssi, wifi_scan_obj.set_channel, conf,
+                            gps_state, lat.c_str(), lon.c_str(), alt.c_str(), dt.c_str());
           }
         #else
           Serial.printf("[FLOCK-WIFI] [%s] MATCH(%s)%s %s "
@@ -10845,19 +11032,29 @@ void WiFiScan::flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t t
           }
         #endif
         // Capture the matched frame to SD pcap so post-walk analysis works.
-        buffer_obj.append(pkt, pkt->rx_ctrl.sig_len);
+        buffer_obj.append((wifi_promiscuous_pkt_t*)pkt, pkt->rx_ctrl.sig_len);
     }
 
     // 10s heartbeat so a quiet pole still proves the rig is alive.
     unsigned long now = millis();
-    if (now - fy_last_wifi_stats >= 10000) {
+    if (now - fy_last_wifi_stats >= 2000) {
         fy_last_wifi_stats = now;
         #ifdef SWIZ_FLIPPER_PROTOCOL
-          Serial.printf("STAT frames=%u mgmt=%u visible=%u hidden=%u flagged=%u hits=%u ch=%d\n",
+          const char* stat_gps = "nofix";
+          String stat_lat = "", stat_lon = "";
+          #ifdef HAS_GPS
+            if (gps_obj.getGpsModuleStatus() && gps_obj.getFixStatus()) {
+                stat_gps = "ok";
+                stat_lat = gps_obj.getLat();
+                stat_lon = gps_obj.getLon();
+            }
+          #endif
+          Serial.printf("STAT frames=%u mgmt=%u visible=%u hidden=%u flagged=%u hits=%u ch=%d gps=%s lat=%s lon=%s\n",
                         fy_wifi_frames_seen, fy_wifi_mgmt_seen,
                         fy_visible_count, fy_hidden_count,
                         fy_hidden_count, fy_wifi_match_count,
-                        wifi_scan_obj.set_channel);
+                        wifi_scan_obj.set_channel,
+                        stat_gps, stat_lat.c_str(), stat_lon.c_str());
         #else
           Serial.printf("[FLOCK-WIFI] [%s] frames_seen:%u matches:%u hidden_flagged:%u ch:%d\n",
                         fyUptimeStr(), fy_wifi_frames_seen, fy_wifi_match_count,
@@ -10868,6 +11065,7 @@ void WiFiScan::flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t t
 
 void WiFiScan::RunFlockWifiScan(uint8_t scan_mode, uint16_t color) {
     fy_wifi_match_count = 0;
+    fy_dwell_until_ms   = 0;  // fresh scan = clear any stale dwell flag
     fy_wifi_frames_seen = 0;
     fy_wifi_mgmt_seen = 0;
     fy_hidden_count = 0;
