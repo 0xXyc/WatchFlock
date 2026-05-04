@@ -34,15 +34,31 @@ Stock Marauder's "Flock Sniff" only looks for BLE chatter from the optional Peng
 
 WatchFlock is for understanding where surveillance hardware is installed in your community — *defensive* recon for journalists, researchers, civil-liberties groups, and curious civilians. It is not a jamming tool.
 
-## Companion app
+## Repo layout
 
-[**WatchFlock-Hunter**](https://github.com/0xXyc/SwizFlockHunter) is a Flipper Zero FAP that reads the SWIZ-protocol tagged-text records over UART (Flipper GPIO pins 13/14 ↔ kokollc Marauder C5 Adapter). Live dashboard, per-MAC unique counter, haptic + audio alerts on first detection.
+Three components, one repo. They're separate codebases (different toolchains) but tightly coupled (the FAP only works with this firmware, and the emitter only matters for testing this firmware end-to-end).
 
-## Build and run
+```
+WatchFlock/
+  esp32_marauder/   firmware for the ESP32-C5 (Arduino + Marauder fork)
+  C5_Py_Flasher/    Python flasher for the C5 over USB-C
+  flipper/          Flipper Zero FAP companion (built with ufbt)
+  emitter/          ESP32-WROVER-E test rig that fakes Flock/Penguin signals
+```
 
-See [BUILD-C5.md](./BUILD-C5.md). TL;DR: Arduino ESP32 core 3.3.0 (NOT 3.3.8 — PSRAM regression), `sketch_flags=-DMARAUDER_C5 -DSWIZ_FLIPPER_PROTOCOL`, partition scheme `default_8MB`, CDCOnBoot disabled, then flash via `c5_flasher.py`.
+### Firmware ([esp32_marauder/](./esp32_marauder/))
 
-Inspired by the [Watch_Dogs](https://en.wikipedia.org/wiki/Watch_Dogs) games — turning the city's sensors back on the people who installed them.
+The C5 sniffer with WIFI_SCAN_FLOCK_AP and BT_SCAN_FLOCK_BLE modes. Build and flash via [BUILD-C5.md](./BUILD-C5.md). Pin Arduino ESP32 core to 3.3.0 (3.3.8 has a PSRAM regression on the N8R8 chip), use `CDCOnBoot=default`, partition `default_8MB`.
+
+### Flipper companion ([flipper/](./flipper/))
+
+Live dashboard for the SWIZ tagged-text records the firmware emits over UART. Per-MAC unique counter, peak RSSI, haptic + audio alerts on first detection per device, BACK to the band picker. Build with `ufbt` from inside the `flipper/` dir. See [flipper/README.md](./flipper/README.md).
+
+### Emitter ([emitter/](./emitter/))
+
+WROVER-E sketch that spoofs four Flock-OUI WiFi identities and three Penguin BLE identities on rotation. Lets you test the firmware + FAP end to end without driving to a real ALPR pole. Plus debug scripts (`c5-tail.sh`, `c5-cmd.sh`) for monitoring the C5 over USB-CDC without auto-resetting it. See [emitter/README.md](./emitter/README.md).
+
+Inspired by the [Watch_Dogs](https://en.wikipedia.org/wiki/Watch_Dogs) games. Turning the city's sensors back on the people who installed them.
 
 By [Jake / Swiz Security](https://github.com/0xXyc).
 

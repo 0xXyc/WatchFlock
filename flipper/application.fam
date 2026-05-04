@@ -1,0 +1,13 @@
+App(
+    appid="swiz_flock_hunter",
+    name="Swiz WiFi Flock Hunter",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="swiz_flock_hunter_app",
+    requires=["gui","storage"],
+    stack_size=8 * 1024,
+    fap_category="GPIO",
+    fap_icon="icon.png",
+    fap_version="0.2",
+    fap_author="Swiz Security",
+    fap_description="Live Flock ALPR detector dashboard, paired with WatchFlock firmware",
+)
