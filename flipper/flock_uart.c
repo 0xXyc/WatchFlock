@@ -77,27 +77,23 @@ bool flock_uart_start(SwizApp* app) {
     else if (app->band == SwizBandBLE) start_cmd = "sniffflockble\r\n";
     static const char kStopCmd[] = "stopscan\r\n";
 
-    // Send the stop+start sequence TWICE with different timings to handle
-    // both fast and slow C5 boot scenarios:
-    //
-    //   Shot 1 @ ~2.0s — catches the C5 if it was already booted and idle
-    //                    (e.g., app restart without OTG power cycle).
-    //   Shot 2 @ ~5.0s — catches the C5 on a cold boot, where Marauder's
-    //                    SD/GPS/screen init can take 3-5s before the CLI
-    //                    parser is alive. The first shot's commands get
-    //                    dropped during the bootloader phase, the second
-    //                    one lands after the `> ` prompt is up.
-    //
-    // The dual-shot is idempotent — if both lands, the second `stopscan`
-    // briefly halts the scan started by shot 1 and the second start
-    // command immediately restarts it. No user-visible side effects beyond
-    // a ~50ms gap in HIT emissions.
-    furi_delay_ms(2000);
+    // Triple-shot stop+start at ~5s / ~10s / ~14s. Marauder cold boot on
+    // the C5 with SD plus GPS init is now timed at 9.7s to CLI ready, so
+    // commands sent earlier get dropped in the bootloader phase. The 14s
+    // shot is insurance for any boot that runs slower (different SD card,
+    // GPS probe variance). Sending sniffflock* after CLI is up is
+    // idempotent: stopscan halts an active scan, sniffflock* restarts it.
+    furi_delay_ms(5000);
     furi_hal_serial_tx(app->serial, (const uint8_t*)kStopCmd, sizeof(kStopCmd) - 1);
     furi_delay_ms(200);
     furi_hal_serial_tx(app->serial, (const uint8_t*)start_cmd, strlen(start_cmd));
 
-    furi_delay_ms(2800);
+    furi_delay_ms(4800);
+    furi_hal_serial_tx(app->serial, (const uint8_t*)kStopCmd, sizeof(kStopCmd) - 1);
+    furi_delay_ms(200);
+    furi_hal_serial_tx(app->serial, (const uint8_t*)start_cmd, strlen(start_cmd));
+
+    furi_delay_ms(3800);
     furi_hal_serial_tx(app->serial, (const uint8_t*)kStopCmd, sizeof(kStopCmd) - 1);
     furi_delay_ms(200);
     furi_hal_serial_tx(app->serial, (const uint8_t*)start_cmd, strlen(start_cmd));

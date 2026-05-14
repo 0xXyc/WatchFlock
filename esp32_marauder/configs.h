@@ -2865,6 +2865,10 @@
   #ifndef HAS_DUAL_BAND
     #define HOP_DELAY 1000
   #else
-    #define HOP_DELAY 250
+    // 400ms per channel matches flock-you-wifi-recon, the ground-truth rig
+    // that catches faint Flock cameras at -93 dBm. Earlier 250ms was too
+    // fast: per-visit overlap window with sparse probe-reqs (e.g. one emit
+    // per 30s on a specific channel) was too low to land marginal signals.
+    #define HOP_DELAY 400
   #endif
 #endif

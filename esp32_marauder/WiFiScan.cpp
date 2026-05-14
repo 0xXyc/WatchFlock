@@ -9215,8 +9215,13 @@ void WiFiScan::channelHop(bool filtered, bool ranged) {
       // [0..13] = 2.4 GHz channels 1-14, [14..50] = 5 GHz channels.
       if (this->currentScanMode == WIFI_SCAN_FLOCK_AP) {
         if (fy_flock_band == FY_BAND_2G) {
-          top_chan = 14;
+          // top_chan=13 keeps us strictly in 2.4 GHz (indices 0-13 = ch 1-14).
+          // Earlier top_chan=14 caused the hop to also visit dual_band_channels[14]
+          // which is 5 GHz channel 32 — wasted ~7% of scan time on 5 GHz and
+          // missed actual 2.4 GHz probe-reqs during that visit.
+          top_chan = 13;
           bot_chan = 0;
+          if (this->dual_band_channel_index > 13) this->dual_band_channel_index = 0;
         } else if (fy_flock_band == FY_BAND_5G) {
           top_chan = DUAL_BAND_CHANNELS;
           bot_chan = 14;
@@ -10714,19 +10719,35 @@ static const char* fy_soundthinking_mac_prefixes[] = {
     "d4:11:d6"
 };
 
-// Hidden-SSID dedup: alert once per unique BSSID per session.
-#define FY_HIDDEN_DEDUP_SIZE 64
+// Hidden / visible SSID dedup rings.
+//
+// Two concerns to keep distinct:
+//   * _filled  = how many slots in the table are populated (capped at SIZE)
+//   * _count   = lifetime unique BSSIDs added this session (capped at 65535)
+//
+// Older code kept only one counter that doubled as both. When the ring
+// filled, the counter froze and the STAT line emitted to the Flipper
+// stopped reflecting real coverage (just sat at SIZE forever). Splitting
+// the two lets the Flipper display true session-unique counts.
+//
+// Dedup ring still rotates on overflow — old entries get evicted. So an
+// evicted MAC re-encountered later WILL be re-counted as new. Acceptable:
+// it's a slow drift in long sessions, not a hard cliff.
+//
+// SIZE = 2048. 2048 * 6 = 12 KB per buffer, two buffers = 24 KB. Fine on
+// the C5 (SRAM ~320 KB). 64 was too small (urban scans saturated in
+// seconds); 512 also saturated under longer drives.
+#define FY_HIDDEN_DEDUP_SIZE 2048
 static uint8_t  fy_hidden_bssids[FY_HIDDEN_DEDUP_SIZE][6];
-static uint8_t  fy_hidden_count = 0;
-static uint8_t  fy_hidden_next_slot = 0;
+static uint16_t fy_hidden_filled = 0;
+static uint16_t fy_hidden_next_slot = 0;
+static uint16_t fy_hidden_count = 0;
 
-// Visible-SSID dedup: count unique BSSIDs that broadcast a non-hidden SSID.
-// Same ring pattern as hidden-SSID dedup. Used for the visible_macs counter
-// in the SwizFlockHunter Flipper protocol stream.
-#define FY_VISIBLE_DEDUP_SIZE 64
+#define FY_VISIBLE_DEDUP_SIZE 2048
 static uint8_t  fy_visible_bssids[FY_VISIBLE_DEDUP_SIZE][6];
-static uint8_t  fy_visible_count = 0;
-static uint8_t  fy_visible_next_slot = 0;
+static uint16_t fy_visible_filled = 0;
+static uint16_t fy_visible_next_slot = 0;
+static uint16_t fy_visible_count = 0;
 
 // Session counters
 static uint32_t fy_wifi_match_count = 0;
@@ -10734,15 +10755,14 @@ static uint32_t fy_wifi_frames_seen = 0;
 static uint32_t fy_wifi_mgmt_seen = 0;
 static unsigned long fy_last_wifi_stats = 0;
 
-// Dwell-on-hit: when flockWifiSnifferCallback fires a Flock-rule HIT, push
-// fy_dwell_until_ms out by FY_DWELL_MS so the main-loop hop logic stays
-// parked on the current channel for that long. Real Flock cameras emit
-// several probe-reqs from the same channel in quick succession, so dwelling
-// after the first hit dramatically increases the chance of catching the
-// follow-up frames — useful for confidence boosting. Set to 0 = dwell
-// expired = normal hopping resumes. Definition is at the top of file
-// (above WiFiScan::main()) so the hop block can reference it.
-#define FY_DWELL_MS 1500
+// Dwell-on-hit: holds the channel for FY_DWELL_MS after a Flock-rule HIT
+// so follow-up probe-reqs from the same device land on the same channel.
+// Set to 0 = disabled = normal hopping resumes immediately. Disabled by
+// default because in multi-pole scenarios it starves the schedule of the
+// quieter pole's channel: every time the loud pole hits, the schedule
+// shifts toward its channel and the faint pole gets less coverage. The
+// follow-up frame benefit was only real with a single pole nearby.
+#define FY_DWELL_MS 0
 
 // fy_flock_band lives near top of file (above channelHop) so all callers see
 // it. The setter function is also defined up there; this is just a comment
@@ -10761,39 +10781,39 @@ static bool fyWifiIsHiddenSSID(const uint8_t* data, uint8_t len) {
 }
 
 static bool fyWifiSeenHidden(const uint8_t* mac) {
-    uint8_t n = fy_hidden_count < FY_HIDDEN_DEDUP_SIZE ? fy_hidden_count : FY_HIDDEN_DEDUP_SIZE;
-    for (uint8_t i = 0; i < n; i++) {
+    for (uint16_t i = 0; i < fy_hidden_filled; i++) {
         if (memcmp(fy_hidden_bssids[i], mac, 6) == 0) return true;
     }
     return false;
 }
 
 static void fyWifiAddHidden(const uint8_t* mac) {
-    if (fy_hidden_count < FY_HIDDEN_DEDUP_SIZE) {
-        memcpy(fy_hidden_bssids[fy_hidden_count], mac, 6);
-        fy_hidden_count++;
+    if (fy_hidden_filled < FY_HIDDEN_DEDUP_SIZE) {
+        memcpy(fy_hidden_bssids[fy_hidden_filled], mac, 6);
+        fy_hidden_filled++;
     } else {
         memcpy(fy_hidden_bssids[fy_hidden_next_slot], mac, 6);
         fy_hidden_next_slot = (fy_hidden_next_slot + 1) % FY_HIDDEN_DEDUP_SIZE;
     }
+    if (fy_hidden_count < 0xFFFF) fy_hidden_count++;
 }
 
 static bool fyWifiSeenVisible(const uint8_t* mac) {
-    uint8_t n = fy_visible_count < FY_VISIBLE_DEDUP_SIZE ? fy_visible_count : FY_VISIBLE_DEDUP_SIZE;
-    for (uint8_t i = 0; i < n; i++) {
+    for (uint16_t i = 0; i < fy_visible_filled; i++) {
         if (memcmp(fy_visible_bssids[i], mac, 6) == 0) return true;
     }
     return false;
 }
 
 static void fyWifiAddVisible(const uint8_t* mac) {
-    if (fy_visible_count < FY_VISIBLE_DEDUP_SIZE) {
-        memcpy(fy_visible_bssids[fy_visible_count], mac, 6);
-        fy_visible_count++;
+    if (fy_visible_filled < FY_VISIBLE_DEDUP_SIZE) {
+        memcpy(fy_visible_bssids[fy_visible_filled], mac, 6);
+        fy_visible_filled++;
     } else {
         memcpy(fy_visible_bssids[fy_visible_next_slot], mac, 6);
         fy_visible_next_slot = (fy_visible_next_slot + 1) % FY_VISIBLE_DEDUP_SIZE;
     }
+    if (fy_visible_count < 0xFFFF) fy_visible_count++;
 }
 
 static const char* fyUptimeStr() {
@@ -11032,7 +11052,14 @@ void WiFiScan::flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t t
           }
         #endif
         // Capture the matched frame to SD pcap so post-walk analysis works.
-        buffer_obj.append((wifi_promiscuous_pkt_t*)pkt, pkt->rx_ctrl.sig_len);
+        // Strip the trailing 4-byte FCS — our pcap declares DLT 105
+        // (LINKTYPE_IEEE802_11, no FCS), so leaving the FCS on causes
+        // Wireshark to parse it as a tagged element and flag every frame
+        // "length of contained item exceeds length of contained item".
+        {
+            size_t store_len = pkt->rx_ctrl.sig_len > 4 ? pkt->rx_ctrl.sig_len - 4 : 0;
+            buffer_obj.append((wifi_promiscuous_pkt_t*)pkt, store_len);
+        }
     }
 
     // 10s heartbeat so a quiet pole still proves the rig is alive.
@@ -11069,8 +11096,10 @@ void WiFiScan::RunFlockWifiScan(uint8_t scan_mode, uint16_t color) {
     fy_wifi_frames_seen = 0;
     fy_wifi_mgmt_seen = 0;
     fy_hidden_count = 0;
+    fy_hidden_filled = 0;
     fy_hidden_next_slot = 0;
     fy_visible_count = 0;
+    fy_visible_filled = 0;
     fy_visible_next_slot = 0;
     fy_last_wifi_stats = millis();
 
@@ -11078,6 +11107,11 @@ void WiFiScan::RunFlockWifiScan(uint8_t scan_mode, uint16_t color) {
       // Boot record so the Flipper app can confirm it's talking to a fork build
       // with the protocol on, not stock Marauder. proto=1 lets us version later.
       Serial.println(F("SWIZ ready proto=1"));
+      // Stream pcap chunks over UART to the Flipper. The C5 onboard SD slot is
+      // dead on the current adapter revision, so the Flipper writes the pcap
+      // to its own SD card via the [BUF/BEGIN]..[BUF/CLOSE] framing in
+      // Buffer::saveSerial().
+      this->save_serial = true;
     #endif
 
     startPcap(F("flockwifi"));
@@ -11105,12 +11139,18 @@ void WiFiScan::RunFlockWifiScan(uint8_t scan_mode, uint16_t color) {
       esp_event_loop_create_default();
     #endif
 
-    // Mgmt-frame-only filter so we ignore data/control noise
+    this->setWiFiMode(WIFI_MODE_NULL, flockWifiSnifferCallback);
+
+    // Mgmt-frame-only filter, applied AFTER setWiFiMode. setWiFiMode unconditionally
+    // installs the global `filt` (MGMT|DATA) inside esp_wifi_set_promiscuous_filter,
+    // which overwrites any earlier setting. With DATA frames on, the callback gets
+    // hammered in dense RF environments and may drop the sparse mgmt probe-reqs we
+    // actually care about. Recon rig (flock-you-wifi-recon) uses MGMT-only and
+    // catches faint Flock cameras (-93 dBm) we miss with the default mask.
     wifi_promiscuous_filter_t filter = {};
     filter.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT;
     esp_wifi_set_promiscuous_filter(&filter);
 
-    this->setWiFiMode(WIFI_MODE_NULL, flockWifiSnifferCallback);
     this->changeChannel(this->set_channel);
     this->wifi_initialized = true;
     initTime = millis();
