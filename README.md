@@ -2,6 +2,8 @@
 
 ESP32-C5 firmware for spotting **Flock Safety** ALPR cameras and **SoundThinking** (formerly ShotSpotter) acoustic gunshot sensors in the wild. Privacy-research tooling, passive detection only, no jamming, no offensive payloads.
 
+**Why this exists.** Flock Safety quietly switched their Falcon V2 cameras to hidden SSIDs and probe-requests, which killed the old "scan for a broadcast SSID" detection approach. This fork is the response. Original research that surfaced the change: [my IG reel](https://www.instagram.com/reel/DXa3n3_jXtP/).
+
 Fork of [justcallmekoko/ESP32Marauder](https://github.com/justcallmekoko/ESP32Marauder). All credit for the underlying firmware goes to kokollc. This fork adds three things: a WiFi-side ALPR detector, a BLE-side Penguin-battery detector, and a tagged-text protocol that streams hits to a Flipper Zero companion app over UART.
 
 ## Quick start
