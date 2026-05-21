@@ -30,7 +30,7 @@ static void on_rx_irq(FuriHalSerialHandle* h, FuriHalSerialRxEvent ev, void* ctx
 // Two-mode stream parser.
 //
 // LINE mode (default): accumulate ASCII bytes into line[], emit on newline,
-//   feed flock_parse_line(). Watch for [BUF/BEGIN] at end of line — when seen,
+//   feed flock_parse_line(). Watch for [BUF/BEGIN] at end of line, when seen,
 //   chop that marker off, discard any unfinished line prefix, switch to BINARY.
 //
 // BINARY mode: stream bytes through a small sliding window so we can detect
@@ -81,7 +81,7 @@ static int32_t rx_worker_run(void* ctx) {
 
                 // Did this byte complete [BUF/BEGIN]? If so, chop the marker
                 // off the line buffer, drop any unfinished prefix (no
-                // newline preceded the marker — uncommon but valid since
+                // newline preceded the marker, uncommon but valid since
                 // Marauder emits the marker as the first bytes of a fresh
                 // Serial.write), and switch to BINARY mode.
                 if (line_len >= BUF_MARKER_LEN &&
@@ -140,15 +140,15 @@ bool flock_uart_start(SwizApp* app) {
     // Send the stop+start sequence TWICE with different timings to handle
     // both fast and slow C5 boot scenarios:
     //
-    //   Shot 1 @ ~2.0s — catches the C5 if it was already booted and idle
+    //   Shot 1 @ ~2.0s, catches the C5 if it was already booted and idle
     //                    (e.g., app restart without OTG power cycle).
-    //   Shot 2 @ ~5.0s — catches the C5 on a cold boot, where Marauder's
+    //   Shot 2 @ ~5.0s, catches the C5 on a cold boot, where Marauder's
     //                    SD/GPS/screen init can take 3-5s before the CLI
     //                    parser is alive. The first shot's commands get
     //                    dropped during the bootloader phase, the second
     //                    one lands after the `> ` prompt is up.
     //
-    // The dual-shot is idempotent — if both lands, the second `stopscan`
+    // The dual-shot is idempotent, if both lands, the second `stopscan`
     // briefly halts the scan started by shot 1 and the second start
     // command immediately restarts it. No user-visible side effects beyond
     // a ~50ms gap in HIT emissions.

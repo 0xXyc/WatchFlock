@@ -28,13 +28,13 @@ static const char* conf_str(SwizConf c) {
 
 // Build an ISO-8601-ish stamp from the Flipper's RTC. Format chosen so it
 // sorts lexicographically and is unambiguous in spreadsheets. If the user
-// hasn't set their RTC, year will be the Flipper's epoch default — still
+// hasn't set their RTC, year will be the Flipper's epoch default, still
 // useful for relative ordering within a session.
 static void format_now_iso(char* out, size_t out_sz) {
     DateTime dt;
     furi_hal_rtc_get_datetime(&dt);
     // %04u for uint16 year could theoretically produce 5 chars (e.g. 65535)
-    // — GCC's -Wformat-truncation flags 24-byte buffers as too tight. 32 is
+    //, GCC's -Wformat-truncation flags 24-byte buffers as too tight. 32 is
     // plenty.
     snprintf(out, out_sz, "%04u-%02u-%02uT%02u:%02u:%02u",
         dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
@@ -84,7 +84,7 @@ void flock_log_init(void) {
         return;
     }
 
-    // Persistent file handle for the whole app session — open once, write per
+    // Persistent file handle for the whole app session, open once, write per
     // HIT, close on exit. Avoids open/close churn that previously saturated SD.
     if(!storage_file_open(g_file, LOG_PATH, FSAM_WRITE, FSOM_OPEN_APPEND)) {
         storage_file_free(g_file);

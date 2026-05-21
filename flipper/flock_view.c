@@ -9,12 +9,12 @@
 
 // Alert intensity scales with confidence tier so the user can recognize
 // what they walked past without looking at the screen. Tuned for "firm but
-// not bomb-going-off" — earlier audiovisual_alert version was startling.
+// not bomb-going-off", earlier audiovisual_alert version was startling.
 //   HIGH   → success chirp + vibro (pleasant ascending tone, definitely
 //            noticeable but not alarming)
-//   MEDIUM → double vibro (two haptic taps, no sound — subtle in public)
+//   MEDIUM → double vibro (two haptic taps, no sound, subtle in public)
 //   LOW    → single short vibro (barely noticeable, just confirms a log)
-// Fires once per uniq++, never on repeats — no buzz spam.
+// Fires once per uniq++, never on repeats, no buzz spam.
 static void fire_alert(SwizApp* app, SwizConf conf) {
     if (!app || !app->notif) return;
     const NotificationSequence* seq = NULL;
@@ -98,7 +98,7 @@ static void draw_counters(Canvas* c, SwizModel* m) {
 
     // Row 2: uniq + hits + peak RSSI. Replaced the firmware's `flagged`
     // (which was a duplicate of hidden) with FAP-side `uniq` (distinct MACs
-    // hit), and the `fr` (frames) with `peak` RSSI — the strongest signal
+    // hit), and the `fr` (frames) with `peak` RSSI, the strongest signal
     // observed this session, which gives a quick "how close am I" read
     // during a field walk. Frame totals can still be recovered from the
     // pcap if needed.
@@ -140,7 +140,7 @@ static void draw_hit_pane(Canvas* c, SwizModel* m) {
         canvas_draw_str(c, 2, 56, m->latest.mac);
 
         // Vendor + RSSI/ch (band is in the badge so we save space here).
-        // "dBm" suffix is dropped — the negative RSSI implies units, and on
+        // "dBm" suffix is dropped, the negative RSSI implies units, and on
         // FontSecondary at 5px/char, "dBm" rendered as visual mush ("...dl").
         // ch is only shown for WiFi hits (ch>0); BLE uses ch=0 sentinel which
         // is already conveyed by the BLE badge so the channel digit is noise.
@@ -154,7 +154,7 @@ static void draw_hit_pane(Canvas* c, SwizModel* m) {
         }
         canvas_draw_str(c, 64, 46, buf);
 
-        // SSID line below — relabeled to "serial:" for BLE hits since the
+        // SSID line below, relabeled to "serial:" for BLE hits since the
         // protocol stuffs the BLE Penguin's TN-prefix serial into the ssid
         // field (no real WiFi SSID exists in BLE adverts). For ch>0 hits
         // it's a real WiFi SSID and stays labeled as such.
@@ -176,7 +176,7 @@ static void draw_hit_pane(Canvas* c, SwizModel* m) {
                         is_ble ? "sniffflockble cmd"  : "firmware @ 115200 baud");
     } else if (m->uniq_total > 0) {
         // Latest hit expired the sticky timer but we've seen flocks this
-        // session — show running summary instead of an empty "no flocks"
+        // session, show running summary instead of an empty "no flocks"
         // message that contradicts the visible hits/uniq counters.
         char buf[40];
         snprintf(buf, sizeof(buf), "%lu unique flocks",
@@ -213,7 +213,7 @@ static void draw_callback(Canvas* c, void* model_v) {
 static bool input_callback(InputEvent* e, void* ctx) {
     UNUSED(e);
     UNUSED(ctx);
-    // BACK is intentionally not consumed here — the dispatcher routes it to
+    // BACK is intentionally not consumed here, the dispatcher routes it to
     // the view's previous_callback (set in swiz_flock_hunter.c) which cleans
     // up the active scan and returns to the band-picker. Returning false
     // lets all input events bubble up.
@@ -299,9 +299,9 @@ void flock_view_apply_msg(View* v, SwizApp* app, const SwizMsg* msg, uint32_t no
 
                 // Find existing seen[] entry for this MAC (or note that it's
                 // a first-time encounter). This drives uniq counting AND
-                // badge eligibility — only the *first* encounter of a MAC
+                // badge eligibility, only the *first* encounter of a MAC
                 // earns the 30s badge slot. Re-hits of an already-seen MAC
-                // never re-show the badge — even if the prior badge timer
+                // never re-show the badge, even if the prior badge timer
                 // has already expired. Keeps the dashboard from getting
                 // stuck on a single device that keeps spamming.
                 bool is_new_mac = true;
@@ -318,7 +318,7 @@ void flock_view_apply_msg(View* v, SwizApp* app, const SwizMsg* msg, uint32_t no
                 }
 
                 if (is_new_mac) {
-                    // First encounter of this MAC this session — show badge,
+                    // First encounter of this MAC this session, show badge,
                     // start the sticky-30s timer, fire haptic + audio.
                     m->latest               = msg->body.hit;
                     m->latest.fired_at_tick = now_tick;
@@ -338,7 +338,7 @@ void flock_view_apply_msg(View* v, SwizApp* app, const SwizMsg* msg, uint32_t no
                 } else {
                     // Known MAC. If the badge is currently showing THIS MAC,
                     // refresh the displayed RSSI/SSID with the latest data
-                    // — but DO NOT extend the sticky timer. The badge still
+                    //, but DO NOT extend the sticky timer. The badge still
                     // expires 30s after first detection. If badge is already
                     // expired or showing a different MAC, leave it alone:
                     // no re-show for already-acknowledged devices.
@@ -365,7 +365,7 @@ void flock_view_reset(View* v) {
         v,
         SwizModel * m,
         {
-            // Wipe everything but preserve active_band — start_scan will
+            // Wipe everything but preserve active_band, start_scan will
             // overwrite it on the next pick anyway, but keeping it stable
             // here avoids a brief flash of the wrong band label between
             // the back-press and the next selection.
@@ -396,7 +396,7 @@ void flock_view_tick(View* v, uint32_t now_tick) {
                 refresh         = true;
             }
             // While the summary pane is up, force a redraw so the "last hit
-            // Ns ago" counter ticks visibly. Cheap — only fires when no
+            // Ns ago" counter ticks visibly. Cheap, only fires when no
             // active hit badge is showing.
             if (!m->latest_valid && m->uniq_total > 0) {
                 refresh = true;

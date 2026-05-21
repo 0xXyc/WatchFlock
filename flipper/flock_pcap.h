@@ -18,7 +18,7 @@ void flock_pcap_init(void);
 // Called once at the start of each [BUF/BEGIN]..[BUF/CLOSE] block so the
 // writer can decide whether the block's first 24 bytes are a duplicate pcap
 // global header (emitted by Marauder every time RunFlockWifiScan kicks
-// pcapOpen — happens on the dual-shot start in flock_uart_start). The first
+// pcapOpen, happens on the dual-shot start in flock_uart_start). The first
 // header per session is kept; subsequent ones are silently dropped so the
 // resulting file stays Wireshark-valid.
 void flock_pcap_block_begin(void);

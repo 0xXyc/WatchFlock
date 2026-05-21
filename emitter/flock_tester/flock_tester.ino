@@ -1,11 +1,11 @@
-// Flock Tester — multi-identity fake Flock device emitter for SwizFlockHunter.
+// Flock Tester, multi-identity fake Flock device emitter for SwizFlockHunter.
 //
 // Runs on ESP32-WROVER-E (2.4 GHz only). Cycles through a set of fake Flock
 // identities covering all three confidence tiers Marauder's flockWifiSnifferCallback
 // emits (HIGH/MEDIUM/LOW), and three distinct BLE Penguin signatures.
 //
 // Why multi-identity: a single MAC + single BLE advert under-tests the pipeline
-// because the FAP's HIT pane is sticky for 30s — same MAC just refreshes RSSI on
+// because the FAP's HIT pane is sticky for 30s, same MAC just refreshes RSSI on
 // the existing badge. Rotating identities exercises:
 //   - Marauder's per-frame matcher (different OUIs hit different rule paths)
 //   - SWIZ HIT record emit at higher rates with varying content
@@ -37,7 +37,7 @@ static const uint32_t WIFI_ROTATE_MS = 2500;
 static const uint32_t BLE_ROTATE_MS  = 1000;
 static const uint32_t WIFI_PROBE_BURST_MS = 800;  // probe-req burst frequency
 
-// Fake WiFi identities — each is a Flock-known OUI plus an SSID that hits a
+// Fake WiFi identities, each is a Flock-known OUI plus an SSID that hits a
 // different Marauder match rule, so rotating through them exercises the full
 // confidence-tier matrix (see fy_flock_match_ssid + fy_flock_match_oui in
 // FlockWiFiMarauder/esp32_marauder/WiFiScan.cpp).
@@ -52,7 +52,7 @@ static const WifiIdentity wifi_ids[] = {
     // Marauder's direct-Flock list as field-confirmed)
     {{0xe4, 0xaa, 0xea, 0x5f, 0xa1, 0xce}, "homenet",          "Liteon-named"},
     // Direct Flock OUI + NO SSID → rule=oui_flock with ssid=hidden → HIGH conf,
-    // FAP renders "<hidden>" — mimics a real Flock camera probing for its
+    // FAP renders "<hidden>", mimics a real Flock camera probing for its
     // hidden uplink SSID without exposing the name in the air.
     {{0xb4, 0x1e, 0x52, 0xbe, 0xef, 0x01}, NULL,               "FlockDirect-hidden"},
     // SoundThinking OUI + test_flck SSID → rule=ssid_exact → HIGH conf
@@ -62,7 +62,7 @@ static const WifiIdentity wifi_ids[] = {
 };
 static const size_t NUM_WIFI_IDS = sizeof(wifi_ids) / sizeof(wifi_ids[0]);
 
-// Fake BLE identities — different Penguin signatures. The C5 firmware matches
+// Fake BLE identities, different Penguin signatures. The C5 firmware matches
 // XUNTONG manufacturer ID 0x09C8 plus name/serial heuristics in WiFiScan.cpp,
 // so we vary the name (10 digits) and serial (TN-prefixed) per identity.
 struct BleIdentity {
@@ -156,7 +156,7 @@ static void trigger_probe_burst() {
 static void setup_ble_initial() {
     NimBLEDevice::init("");
     NimBLEAdvertising* pAdv = NimBLEDevice::getAdvertising();
-    pAdv->setMinInterval(160);  // 100ms — fast enough that each identity gets
+    pAdv->setMinInterval(160);  // 100ms, fast enough that each identity gets
     pAdv->setMaxInterval(160);  //         several adverts before next rotation
     apply_ble_identity(0);
     ble_idx = 0;
@@ -167,7 +167,7 @@ void setup() {
     delay(800);
     Serial.println();
     Serial.println("=========================================================");
-    Serial.println("  Flock Tester — multi-identity fake Flock device emitter");
+    Serial.println("  Flock Tester, multi-identity fake Flock device emitter");
     Serial.println("=========================================================");
     Serial.printf("  WiFi identities: %u (rotates every %u ms)\n",
                   (unsigned)NUM_WIFI_IDS, (unsigned)WIFI_ROTATE_MS);

@@ -37,7 +37,7 @@ void GpsInterface::begin() {
 
   // Track what baud the UART is actually at after probing. If detection
   // failed (gps_baud == 0) the last probeBaud() call in init left us at
-  // 9600 — record that so the recovery logic in main() knows what to
+  // 9600, record that so the recovery logic in main() knows what to
   // swap away from. If detection succeeded, lock to that baud.
   this->gps_current_baud = (gps_baud == 115200) ? 115200 : 9600;
   this->gps_baud_locked  = (gps_baud != 0);
@@ -801,15 +801,15 @@ void GpsInterface::main() {
   // Module-alive heartbeat: begin() probes once at boot, but on the kokollc
   // adapter the GPS module can be slow to wake and the begin-time probe
   // sometimes returns no data even though the module is healthy. If we
-  // ever see bytes here, the module is talking — flip gps_enabled true so
+  // ever see bytes here, the module is talking, flip gps_enabled true so
   // STAT emits gps=ok|nofix correctly instead of gps=nofix forever.
   if (got_bytes) this->gps_enabled = true;
 
   // Runtime baud recovery: if bytes are flowing but no NMEA sentence has
   // ever parsed, we're talking to the module at the wrong rate. Swap
   // 9600 <-> 115200 every ~5 seconds until a parse succeeds, then lock.
-  // Module wake on the kokollc adapter is non-deterministic — observed
-  // 1-8 seconds after C5 power-on — so begin()'s one-shot probe misses
+  // Module wake on the kokollc adapter is non-deterministic, observed
+  // 1-8 seconds after C5 power-on, so begin()'s one-shot probe misses
   // it on cold starts and leaves the UART at 9600 while the module
   // (NVRAM-configured to 115200) talks past it.
   if (!this->gps_baud_locked && this->gps_recovery_attempts < 8) {
@@ -817,7 +817,7 @@ void GpsInterface::main() {
     if (this->gps_last_recovery_ms == 0) this->gps_last_recovery_ms = now;
     if (now - this->gps_last_recovery_ms > 5000) {
       // Trigger on ANY bytes seen (framing errors at wrong baud often drop
-      // most bytes). gps_enabled is the heartbeat — "we ever saw a byte."
+      // most bytes). gps_enabled is the heartbeat, "we ever saw a byte."
       if (this->gps_enabled && this->gps_parsed_count == 0) {
         uint32_t new_baud = (this->gps_current_baud == 115200) ? 9600 : 115200;
         GpsSerial.end();

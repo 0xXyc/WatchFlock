@@ -4,7 +4,7 @@
 # Usage: c5-cmd.sh "<command>" [seconds=8]
 # Example: c5-cmd.sh "sniffflockwifi -b 2g" 12
 #
-# Holds DTR/RTS low to avoid the auto-reset circuit. Read-only to stdout —
+# Holds DTR/RTS low to avoid the auto-reset circuit. Read-only to stdout -
 # returns when the timeout expires. Useful as a probe to see if the C5 is
 # responsive without going through the Flipper FAP path.
 
@@ -41,6 +41,6 @@ while time.time() < end:
             sys.stdout.flush()
         except: pass
 if not got_anything:
-    print('>>> (silent — no response in $SECS seconds)', file=sys.stderr)
+    print('>>> (silent, no response in $SECS seconds)', file=sys.stderr)
 s.close()
 "

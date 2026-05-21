@@ -157,7 +157,7 @@ void Buffer::append(wifi_promiscuous_pkt_t *packet, int len) {
   rt[11] = (uint8_t)((chflags >> 8) & 0xff);
   rt[12] = (uint8_t)packet->rx_ctrl.rssi;
 
-  // Combine radiotap + 802.11 frame. Static buffer is safe — append is
+  // Combine radiotap + 802.11 frame. Static buffer is safe, append is
   // only called from the WiFi promiscuous callback (single task context).
   // Sized for max 802.11 frame (2324) plus radiotap (13) plus headroom.
   static uint8_t combined[2400];

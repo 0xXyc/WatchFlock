@@ -2,7 +2,7 @@
 # Tail the C5's USB-CDC without resetting the chip.
 #
 # Holds DTR/RTS low across the read so the chip's auto-reset circuit doesn't
-# fire. Read-only — Ctrl-C to exit. (Use pyserial-miniterm in a real terminal
+# fire. Read-only, Ctrl-C to exit. (Use pyserial-miniterm in a real terminal
 # if you need bidirectional input.)
 
 PORT="${1:-/dev/cu.usbmodem5B7B0330131}"

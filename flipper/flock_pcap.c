@@ -97,7 +97,7 @@ void flock_pcap_write(const uint8_t* data, size_t len) {
         // Past the magic-check prefix.
         if(g_block_is_dup_header && g_block_offset < PCAP_GLOBAL_HEADER_LEN) {
             g_block_offset++;
-            continue; // still inside the duplicate global header — drop
+            continue; // still inside the duplicate global header, drop
         }
         storage_file_write(g_file, &b, 1);
         g_block_offset++;

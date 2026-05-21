@@ -80,7 +80,7 @@ typedef struct {
     uint32_t last_stat_tick;
     // Baseline only the fast-tick counters that can ramp into the hundreds
     // before the FAP even renders. vis/hid grow slowly (one per new BSSID)
-    // and the firmware already resets them on sniffflock* — leaving them
+    // and the firmware already resets them on sniffflock*, leaving them
     // raw matches user intuition ("how many flocks/hidden APs am I near
     // right now"). hits and frames need baseline because the WROVER spammer
     // (or a real busy RF environment) racks up dozens before first STAT.
@@ -89,7 +89,7 @@ typedef struct {
     uint32_t baseline_hits;
     // Strongest (closest to 0) RSSI seen across all session HITs. Updated
     // on every HIT in flock_view_apply_msg. Surfaces proximity awareness
-    // in the counter row — good for "am I close to a flock right now"
+    // in the counter row, good for "am I close to a flock right now"
     // field-walk reading without needing the badge to be active.
     int8_t   peak_rssi;
     bool     peak_rssi_set;
@@ -105,14 +105,14 @@ typedef struct {
     // WiFi-mode at a glance even before the first SWIZ ack.
     uint8_t  active_band;
 
-    // Unique-MAC tracking. seen[] is a fixed-size bag — once full, repeats
+    // Unique-MAC tracking. seen[] is a fixed-size bag, once full, repeats
     // for known MACs still update stats but new MACs only bump uniq_total
     // (their per-MAC stats just aren't tracked). For a typical field walk
     // 32 distinct flocks is far beyond what one session encounters.
     SwizSeenMac seen[SWIZ_SEEN_MAX];
     uint16_t    seen_count;     // entries currently populated in seen[]
     uint32_t    uniq_total;     // distinct MACs encountered (may exceed seen_count)
-    uint32_t    last_hit_tick;  // any hit, new or repeat — refreshes whenever we get a HIT
+    uint32_t    last_hit_tick;  // any hit, new or repeat, refreshes whenever we get a HIT
 } SwizModel;
 
 typedef struct SwizApp SwizApp;

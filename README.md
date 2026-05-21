@@ -1,6 +1,6 @@
 # WatchFlock
 
-ESP32-C5 firmware for spotting **Flock Safety** ALPR cameras and **SoundThinking** (formerly ShotSpotter) acoustic gunshot sensors in the wild. Privacy-research tooling — passive detection only, no jamming, no offensive payloads.
+ESP32-C5 firmware for spotting **Flock Safety** ALPR cameras and **SoundThinking** (formerly ShotSpotter) acoustic gunshot sensors in the wild. Privacy-research tooling, passive detection only, no jamming, no offensive payloads.
 
 Fork of [justcallmekoko/ESP32Marauder](https://github.com/justcallmekoko/ESP32Marauder). All credit for the underlying firmware goes to kokollc. This fork adds three things: a WiFi-side ALPR detector, a BLE-side Penguin-battery detector, and a tagged-text protocol that streams hits to a Flipper Zero companion app over UART.
 
@@ -8,7 +8,7 @@ Fork of [justcallmekoko/ESP32Marauder](https://github.com/justcallmekoko/ESP32Ma
 
 What you need:
 
-- **ESP32-C5-DevKitC-1** (N8R8 — 8MB flash, 8MB PSRAM)
+- **ESP32-C5-DevKitC-1** (N8R8, 8MB flash, 8MB PSRAM)
 - **kokollc Marauder C5 Adapter** for Flipper Zero ([link](https://justcallmekokollc.com/products/marauder-c5-adapter-flipper-zero))
 - **Flipper Zero**, stock firmware
 - A Mac/Linux box with `arduino-cli` + [`ufbt`](https://github.com/flipperdevices/flipperzero-ufbt) installed
@@ -26,7 +26,7 @@ arduino-cli compile \
   esp32_marauder
 ```
 
-Pin the core to **3.3.0**. 3.3.8 has a PSRAM init regression that crashes the N8R8 bootloader. Don't change `CDCOnBoot=default` to `cdc` — it masks real error messages at boot. Long version: [BUILD-C5.md](./BUILD-C5.md).
+Pin the core to **3.3.0**. 3.3.8 has a PSRAM init regression that crashes the N8R8 bootloader. Don't change `CDCOnBoot=default` to `cdc`, it masks real error messages at boot. Long version: [BUILD-C5.md](./BUILD-C5.md).
 
 ### 2. Flash the C5
 
@@ -39,7 +39,7 @@ python3 -m esptool --chip esp32c5 --port /dev/cu.usbmodemXXXX --baud 460800 writ
   0x10000 build/esp32_marauder.ino.bin
 ```
 
-Offsets are **0x2000 / 0x8000 / 0x10000** — *not* the classic ESP32 0x1000. Wrong offsets boot-loop the chip with `invalid header`. Easier alternative if you don't want to memorize that:
+Offsets are **0x2000 / 0x8000 / 0x10000**, *not* the classic ESP32 0x1000. Wrong offsets boot-loop the chip with `invalid header`. Easier alternative if you don't want to memorize that:
 
 ```bash
 python3 C5_Py_Flasher/c5_flasher.py build/esp32_marauder.ino.bin
@@ -47,7 +47,7 @@ python3 C5_Py_Flasher/c5_flasher.py build/esp32_marauder.ino.bin
 
 ### 3. Sideload the Flipper FAP
 
-Connect the Flipper to your computer. **Close qFlipper if it's open — it holds the port.**
+Connect the Flipper to your computer. **Close qFlipper if it's open, it holds the port.**
 
 ```bash
 cd flipper
@@ -58,7 +58,7 @@ That builds the FAP, pushes it to `/ext/apps/GPIO/swiz_flock_hunter.fap` on the 
 
 ### 4. Run it
 
-Stack the C5 on top of the koko adapter, plug the adapter into the Flipper's expansion header. Power via USB-C to the C5 (or run the Flipper on battery — the adapter pulls power down through the Flipper).
+Stack the C5 on top of the koko adapter, plug the adapter into the Flipper's expansion header. Power via USB-C to the C5 (or run the Flipper on battery, the adapter pulls power down through the Flipper).
 
 On the Flipper: **Apps → GPIO → Swiz's WatchFlock**.
 
@@ -80,8 +80,8 @@ Walk near suspected hardware. Hits show up live with vendor, RSSI, channel, and 
 
 **Notifications.** The Flipper buzzes + beeps on:
 
-- The **first sighting of each unique device** (per-MAC, so you don't get spammed — second packet from the same MAC stays quiet)
-- **GPS fix acquired** — the moment `gps=ok` flips true, so you know coords will now be tagged onto subsequent hits
+- The **first sighting of each unique device** (per-MAC, so you don't get spammed, second packet from the same MAC stays quiet)
+- **GPS fix acquired**, the moment `gps=ok` flips true, so you know coords will now be tagged onto subsequent hits
 
 ## Where your data lands
 
@@ -92,7 +92,7 @@ Both kinds of capture are written to the Flipper SD card under `/ext/apps_data/s
 | `WatchFlock-hits.csv` | One row per unique device hit. Columns: timestamp, MAC, OUI, vendor, rule, SSID, RSSI, channel, confidence, GPS-fix flag, lat, lon, alt, GPS time, Flipper time. |
 | `flockwifi-YYYYMMDD-HHMMSS.pcap` | Raw 802.11 frames from each scan session, framed with a radiotap header carrying channel + RSSI. Open in Wireshark. |
 
-**Why these matter.** The CSV is your *findings record* — pop it into a spreadsheet or onto a map and you've got a list of where each Flock camera lives, when you saw it, and how strong the signal was. The PCAPs are *RF evidence* — the actual probe-req/beacon frames the cameras emit. Useful for confirming OUI matches, sharing findings with other researchers, or reproducing detections offline.
+**Why these matter.** The CSV is your *findings record*, pop it into a spreadsheet or onto a map and you've got a list of where each Flock camera lives, when you saw it, and how strong the signal was. The PCAPs are *RF evidence*, the actual probe-req/beacon frames the cameras emit. Useful for confirming OUI matches, sharing findings with other researchers, or reproducing detections offline.
 
 **Getting the files off the Flipper:**
 
@@ -110,7 +110,7 @@ Both kinds of capture are written to the Flipper SD card under `/ext/apps_data/s
 |------|-------------|---------|
 | **`WIFI_SCAN_FLOCK_AP`** | `sniffflockwifi [-b 2g\|5g\|all]` | Pole-mounted Falcon V2s probing for hidden uplink SSIDs |
 | **`BT_SCAN_FLOCK_BLE`** | `sniffflockble` | External Penguin batteries advertising via BLE (XUNTONG mfg ID `0x09C8`) |
-| **`SWIZ_FLIPPER_PROTOCOL`** *(compile flag)* | — | Emits tagged-text `HIT` / `STAT` / `HIDE` / `SWIZ ready` records the [Swiz's WatchFlock](./flipper/) Flipper FAP parses |
+| **`SWIZ_FLIPPER_PROTOCOL`** *(compile flag)* |, | Emits tagged-text `HIT` / `STAT` / `HIDE` / `SWIZ ready` records the [Swiz's WatchFlock](./flipper/) Flipper FAP parses |
 
 ## Detection rules
 
@@ -130,9 +130,9 @@ Hits are streamed to UART (115200 baud) and dumped to SD as `flockwifi-XXXX.pcap
 
 ## Why
 
-Stock Marauder's "Flock Sniff" only looks for BLE chatter from the optional Penguin battery. Most pole-mounted Falcon V2s run on internal battery + solar and never advertise BLE — but they do continuously probe WiFi for a hidden uplink SSID with predictable OUIs. This fork catches both surfaces.
+Stock Marauder's "Flock Sniff" only looks for BLE chatter from the optional Penguin battery. Most pole-mounted Falcon V2s run on internal battery + solar and never advertise BLE, but they do continuously probe WiFi for a hidden uplink SSID with predictable OUIs. This fork catches both surfaces.
 
-WatchFlock is for understanding where surveillance hardware is installed in your community — *defensive* recon for journalists, researchers, civil-liberties groups, and curious civilians. It is not a jamming tool.
+WatchFlock is for understanding where surveillance hardware is installed in your community, *defensive* recon for journalists, researchers, civil-liberties groups, and curious civilians. It is not a jamming tool.
 
 ## Repo layout
 

@@ -1,4 +1,4 @@
-// Swiz's WatchFlock — Flipper Zero companion app for the WatchFlock C5 firmware.
+// Swiz's WatchFlock, Flipper Zero companion app for the WatchFlock C5 firmware.
 //
 // On launch, presents a band-picker submenu (2.4 GHz / 5 GHz / Dual / BLE).
 // Selection drives a runtime CLI argument to the C5 firmware so band changes
@@ -24,7 +24,7 @@
 // Sized to absorb scan-startup bursts (band-switch triple-shot + SWIZ ready
 // + STAT + several HITs) without dropping HITs when on_timer hasn't fired
 // yet. The producer (rx_worker_run) uses furi_message_queue_put with
-// timeout=0, so when the queue is full HITs get silently dropped — CSV
+// timeout=0, so when the queue is full HITs get silently dropped, CSV
 // still records because that write is upstream of the queue, but
 // fire_alert never runs and the badge never appears. 16 was too small;
 // observed drops in dense urban scans. 64 covers ~12 seconds of normal
@@ -70,20 +70,20 @@ static void start_scan(AppCtx* c, SwizBand band) {
     c->app->band = band;
     flock_view_set_band(c->app->view, band);
     if (!flock_uart_start(c->app)) {
-        // UART setup failed — bounce back to the band picker so the user
+        // UART setup failed, bounce back to the band picker so the user
         // can retry rather than getting stuck on the loading screen.
         view_dispatcher_switch_to_view(c->app->vd, VIEW_ID_MENU);
         return;
     }
 
     // Two-stage flush of any pre-mode-switch state:
-    //   1. Reset the rx_stream byte buffer — wipes UNPARSED bytes from when
+    //   1. Reset the rx_stream byte buffer, wipes UNPARSED bytes from when
     //      the C5 was in the previous scan mode. Without this step the worker
     //      thread continues parsing those bytes after we drain, leaking
     //      stale HITs into the new dashboard (e.g. "HIGH 5G Liteon" badges
     //      appearing in BLE Flock mode where ch>14 is impossible).
     //   2. Brief settle to let the worker thread finish its current iteration.
-    //   3. Drain the event_queue — wipes already-parsed messages.
+    //   3. Drain the event_queue, wipes already-parsed messages.
     if (c->app->rx_stream) {
         furi_stream_buffer_reset(c->app->rx_stream);
     }

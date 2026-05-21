@@ -8,7 +8,7 @@ Cycles through multiple fake identities on both radios in parallel.
 
 **WiFi side** (rotates every 2.5s):
 - Liteon OUI `e4:aa:ea:5f:a1:ce` probing for SSID `homenet` (named, MEDIUM tier)
-- Flock direct OUI `b4:1e:52:be:ef:01` with no SSID (hidden, HIGH tier — what real Falcon V2 cameras look like)
+- Flock direct OUI `b4:1e:52:be:ef:01` with no SSID (hidden, HIGH tier, what real Falcon V2 cameras look like)
 - SoundThinking/ShotSpotter OUI `d4:11:d6:ca:fe:02` probing for SSID `test_flck` (CVE-2025-59409 dev SSID)
 - Liteon variant `e4:aa:ea:12:34:56` with no SSID (hidden, HIGH)
 
@@ -58,8 +58,8 @@ Expected boot output on the WROVER's serial:
 
 Two helper shell scripts for monitoring an ESP32-C5 over USB-CDC without the open-port-resets-the-chip problem (USB-Serial-JTAG asserts reset on DTR pulse during port open):
 
-- `c5-tail.sh` — live tail of the C5's serial output, holds DTR/RTS low to avoid reset
-- `c5-cmd.sh "<command>" [seconds]` — send a single CLI command, capture response for N seconds
+- `c5-tail.sh`, live tail of the C5's serial output, holds DTR/RTS low to avoid reset
+- `c5-cmd.sh "<command>" [seconds]`, send a single CLI command, capture response for N seconds
 
 Both target `/dev/cu.usbmodem5B7B0330131` by default (override via env or arg). Useful for any Flipper + Marauder + ESP32 dev workflow, not just this project.
 

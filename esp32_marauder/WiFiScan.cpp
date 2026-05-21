@@ -767,7 +767,7 @@ extern "C" {
                 // (no WiFi channel concept); FAP renders that as a "BLE" badge.
                 // rule=ble_penguin so the parser tags this distinctly from WiFi
                 // hits, and conf=HIGH because XUNTONG mfg ID + name pattern is
-                // a strong signal — same gating as the on-device hit logic.
+                // a strong signal, same gating as the on-device hit logic.
                 if (wifi_scan_obj.currentScanMode == BT_SCAN_FLOCK_BLE) {
                   unsigned int b[6] = {0};
                   sscanf(mac.c_str(), "%x:%x:%x:%x:%x:%x",
@@ -1663,7 +1663,7 @@ void WiFiScan::RunSetup() {
     };
     
     // NimBLE 2.5 (shipped with ESP-IDF 5.3+ for the C5) crashes if
-    // NimBLEDevice::deinit() is called immediately after init() — it asserts
+    // NimBLEDevice::deinit() is called immediately after init(), it asserts
     // in r_ble_ll_mem_generic_data_deinit → multi_heap_free(NULL).
     // The init→shutdownBLE pattern at boot was a redundant clean-state hack
     // from older NimBLE; just leave BLE uninitialized at boot. Scan handlers
@@ -5160,7 +5160,7 @@ void WiFiScan::displayWardriveStats() {
         display_obj.tft.println("Size: " + (String)((float)sd_obj.getFile(buffer_obj.getFileName()).size() / 1024) + "KB");
       #endif
 
-      // POI button — full width bottom bar
+      // POI button, full width bottom bar
       display_obj.tft.drawRect(0, 270, 240, 50, TFT_MAGENTA);
       display_obj.tft.setTextSize(2);
       display_obj.tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
@@ -6106,7 +6106,7 @@ uint8_t WiFiScan::getSecurityType(const uint8_t* beacon, uint16_t len) {
 
         const uint8_t* tag_data = ies + i + 2;
 
-        // ── RSN IE (Tag 48) — indicates WPA2/WPA3 ────────────────────
+        // ── RSN IE (Tag 48), indicates WPA2/WPA3 ────────────────────
         if (tag_id == 48) {
             hasRSN = true;
 
@@ -6118,7 +6118,7 @@ uint8_t WiFiScan::getSecurityType(const uint8_t* beacon, uint16_t len) {
             uint16_t offset = 6;
 
             // Read pairwise cipher suite count and skip over the entire pairwise list
-            // This offset is dynamic — hardcoding byte 14 is wrong when count > 1
+            // This offset is dynamic, hardcoding byte 14 is wrong when count > 1
             uint16_t pw_count = tag_data[offset] | ((uint16_t)tag_data[offset + 1] << 8);
             offset += 2 + pw_count * 4;
 
@@ -6145,14 +6145,14 @@ uint8_t WiFiScan::getSecurityType(const uint8_t* beacon, uint16_t len) {
                         akmType == 12 ||
                         akmType == 13)
                     isEnterprise = true; // 802.1X authentication (WPA2-Enterprise) | FT over 802.1X | FILS-SHA256 (WPA3-Enterprise) | FILS-SHA384 (WPA3-Enterprise)
-                    if (akmType == 8)  isWPA3 = true;       // SAE (Simultaneous Authentication of Equals) — WPA3-Personal
+                    if (akmType == 8)  isWPA3 = true;       // SAE (Simultaneous Authentication of Equals), WPA3-Personal
                 }
 
                 offset += 4;
             }
         }
 
-        // ── WPA IE (Tag 221, OUI 00:50:F2:01) — indicates WPA1 ───────
+        // ── WPA IE (Tag 221, OUI 00:50:F2:01), indicates WPA1 ───────
         else if (tag_id == 221 && tag_len >= 8 &&
                  tag_data[0] == 0x00 && tag_data[1] == 0x50 &&
                  tag_data[2] == 0xf2 && tag_data[3] == 0x01) {
@@ -6185,7 +6185,7 @@ uint8_t WiFiScan::getSecurityType(const uint8_t* beacon, uint16_t len) {
             }
         }
 
-        // ── WAPI IE (Tag 68) — Chinese national Wi-Fi security standard ──
+        // ── WAPI IE (Tag 68), Chinese national Wi-Fi security standard ──
         else if (tag_id == 68) {
             isWAPI = true;
         }
@@ -6203,7 +6203,7 @@ uint8_t WiFiScan::getSecurityType(const uint8_t* beacon, uint16_t len) {
     if (hasWPA)                 return isEnterprise ? WIFI_SECURITY_WPA2_ENTERPRISE
                                                     : WIFI_SECURITY_WPA;
 
-    // WEP is not advertised via IEs — detected through the Privacy bit (bit 4)
+    // WEP is not advertised via IEs, detected through the Privacy bit (bit 4)
     // in the Capability Information field at bytes 34-35 (little-endian)
     uint16_t capab = (uint16_t)frame[34] | ((uint16_t)frame[35] << 8);
     if (capab & 0x0010) return WIFI_SECURITY_WEP;
@@ -9217,7 +9217,7 @@ void WiFiScan::channelHop(bool filtered, bool ranged) {
         if (fy_flock_band == FY_BAND_2G) {
           // top_chan=13 keeps us strictly in 2.4 GHz (indices 0-13 = ch 1-14).
           // Earlier top_chan=14 caused the hop to also visit dual_band_channels[14]
-          // which is 5 GHz channel 32 — wasted ~7% of scan time on 5 GHz and
+          // which is 5 GHz channel 32, wasted ~7% of scan time on 5 GHz and
           // missed actual 2.4 GHz probe-reqs during that visit.
           top_chan = 13;
           bot_chan = 0;
@@ -10129,7 +10129,7 @@ void WiFiScan::main(uint32_t currentTime)
       // scan modes ignore the dwell flag and hop normally.
       if (currentScanMode == WIFI_SCAN_FLOCK_AP &&
           fy_dwell_until_ms != 0 && currentTime < fy_dwell_until_ms) {
-        // still dwelling — skip hop, keep initTime where it was so we
+        // still dwelling, skip hop, keep initTime where it was so we
         // re-check on the next loop iteration
       } else {
         fy_dwell_until_ms = 0;
@@ -10212,11 +10212,11 @@ void WiFiScan::main(uint32_t currentTime)
         // Heartbeat STAT for the Flipper FAP. Real values where the BLE world
         // has equivalents:
         //   frames  = total BLE adverts received this session (bt_frames)
-        //   mgmt    = same — every BLE advert is a discovery/mgmt-style frame
-        //   visible = same — there's no AP/station distinction in BLE
-        //   hidden  = 0 — no equivalent in BLE
-        //   flagged = flock_devices — Penguin/XUNTONG-mfg-ID matches
-        //   hits    = flock_devices — same metric, kept for FAP counter parity
+        //   mgmt    = same, every BLE advert is a discovery/mgmt-style frame
+        //   visible = same, there's no AP/station distinction in BLE
+        //   hidden  = 0, no equivalent in BLE
+        //   flagged = flock_devices, Penguin/XUNTONG-mfg-ID matches
+        //   hits    = flock_devices, same metric, kept for FAP counter parity
         // ch=0 is the BLE sentinel; FAP renders "BLE" in the badge for ch=0.
         static unsigned long fy_last_ble_stats = 0;
         if (currentScanMode == BT_SCAN_FLOCK_BLE) {
@@ -10730,7 +10730,7 @@ static const char* fy_soundthinking_mac_prefixes[] = {
 // stopped reflecting real coverage (just sat at SIZE forever). Splitting
 // the two lets the Flipper display true session-unique counts.
 //
-// Dedup ring still rotates on overflow — old entries get evicted. So an
+// Dedup ring still rotates on overflow, old entries get evicted. So an
 // evicted MAC re-encountered later WILL be re-counted as new. Acceptable:
 // it's a slow drift in long sessions, not a hard cliff.
 //
@@ -10971,7 +10971,7 @@ void WiFiScan::flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t t
     // level on 2026-05-14. Indoor validation flooded hits.csv with thousands
     // of unrelated probe-req rows and made the rig look like it was catching
     // Flocks when it wasn't. If we need indoor validation again, uncomment
-    // and rebuild with -DSWIZ_TEST_MODE — but commit-revert before fielding.
+    // and rebuild with -DSWIZ_TEST_MODE, but commit-revert before fielding.
     // #ifdef SWIZ_TEST_MODE
     //   if (!rule) rule = "test_anyprobe";
     // #endif
@@ -11054,7 +11054,7 @@ void WiFiScan::flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t t
           }
         #endif
         // Capture the matched frame to SD pcap so post-walk analysis works.
-        // Strip the trailing 4-byte FCS — our pcap declares DLT 105
+        // Strip the trailing 4-byte FCS, our pcap declares DLT 105
         // (LINKTYPE_IEEE802_11, no FCS), so leaving the FCS on causes
         // Wireshark to parse it as a tagged element and flag every frame
         // "length of contained item exceeds length of contained item".
