@@ -4,13 +4,71 @@ ESP32-C5 firmware for spotting **Flock Safety** ALPR cameras and **SoundThinking
 
 Fork of [justcallmekoko/ESP32Marauder](https://github.com/justcallmekoko/ESP32Marauder). All credit for the underlying firmware goes to kokollc. This fork adds three things: a WiFi-side ALPR detector, a BLE-side Penguin-battery detector, and a tagged-text protocol that streams hits to a Flipper Zero companion app over UART.
 
+## Quick start
+
+What you need:
+
+- **ESP32-C5-DevKitC-1** (N8R8 — 8MB flash, 8MB PSRAM)
+- **kokollc Marauder C5 Adapter** for Flipper Zero ([link](https://justcallmekokollc.com/products/marauder-c5-adapter-flipper-zero))
+- **Flipper Zero**, stock firmware
+- A Mac/Linux box with `arduino-cli` + [`ufbt`](https://github.com/flipperdevices/flipperzero-ufbt) installed
+
+### 1. Build the C5 firmware
+
+```bash
+arduino-cli core install esp32:esp32@3.3.0
+arduino-cli compile \
+  -b "esp32:esp32:esp32c5:FlashSize=8M,PartitionScheme=default_8MB,PSRAM=enabled,CDCOnBoot=default" \
+  --build-property "compiler.cpp.extra_flags=-DMARAUDER_C5 -DSWIZ_FLIPPER_PROTOCOL" \
+  --build-property "compiler.c.extra_flags=-DMARAUDER_C5 -DSWIZ_FLIPPER_PROTOCOL" \
+  --libraries ./libraries \
+  --output-dir ./build \
+  esp32_marauder
+```
+
+Pin the core to **3.3.0**. 3.3.8 has a PSRAM init regression that crashes the N8R8 bootloader. Don't change `CDCOnBoot=default` to `cdc` — it masks real error messages at boot. Long version: [BUILD-C5.md](./BUILD-C5.md).
+
+### 2. Flash the C5
+
+Plug the C5 alone (not yet on the koko adapter) into your computer via its USB-C. Find its port with `ls /dev/cu.usbmodem*`.
+
+```bash
+python3 -m esptool --chip esp32c5 --port /dev/cu.usbmodemXXXX --baud 460800 write_flash \
+  0x2000  build/esp32_marauder.ino.bootloader.bin \
+  0x8000  build/esp32_marauder.ino.partitions.bin \
+  0x10000 build/esp32_marauder.ino.bin
+```
+
+Offsets are **0x2000 / 0x8000 / 0x10000** — *not* the classic ESP32 0x1000. Wrong offsets boot-loop the chip with `invalid header`. Easier alternative if you don't want to memorize that:
+
+```bash
+python3 C5_Py_Flasher/c5_flasher.py build/esp32_marauder.ino.bin
+```
+
+### 3. Sideload the Flipper FAP
+
+Connect the Flipper to your computer. **Close qFlipper if it's open — it holds the port.**
+
+```bash
+cd flipper
+ufbt launch
+```
+
+That builds the FAP, pushes it to `/ext/apps/GPIO/swiz_flock_hunter.fap` on the Flipper's SD, and launches it.
+
+### 4. Run it
+
+Stack the C5 on top of the koko adapter, plug the adapter into the Flipper's expansion header. Power via USB-C to the C5 (or run the Flipper on battery — the adapter pulls power down through the Flipper).
+
+On the Flipper: **Apps → GPIO → Swiz's WatchFlock** → pick a band (`2.4 GHz`, `5 GHz`, `Dual`, or `BLE`). Walk near suspected hardware. Hits show up live with vendor, RSSI, channel, and GPS coords if you have a fix.
+
 ## What this fork adds
 
 | Mode | CLI command | Detects |
 |------|-------------|---------|
 | **`WIFI_SCAN_FLOCK_AP`** | `sniffflockwifi [-b 2g\|5g\|all]` | Pole-mounted Falcon V2s probing for hidden uplink SSIDs |
 | **`BT_SCAN_FLOCK_BLE`** | `sniffflockble` | External Penguin batteries advertising via BLE (XUNTONG mfg ID `0x09C8`) |
-| **`SWIZ_FLIPPER_PROTOCOL`** *(compile flag)* | — | Emits tagged-text `HIT` / `STAT` / `HIDE` / `SWIZ ready` records the [WatchFlock-Hunter](https://github.com/0xXyc/SwizFlockHunter) Flipper FAP parses |
+| **`SWIZ_FLIPPER_PROTOCOL`** *(compile flag)* | — | Emits tagged-text `HIT` / `STAT` / `HIDE` / `SWIZ ready` records the [Swiz's WatchFlock](./flipper/) Flipper FAP parses |
 
 ## Detection rules
 
@@ -61,34 +119,3 @@ WROVER-E sketch that spoofs four Flock-OUI WiFi identities and three Penguin BLE
 Inspired by the [Watch_Dogs](https://en.wikipedia.org/wiki/Watch_Dogs) games. Turning the city's sensors back on the people who installed them.
 
 By [Jake / Swiz Security](https://github.com/0xXyc).
-
----
-
-<!---[![License: MIT](https://img.shields.io/github/license/mashape/apistatus.svg)](https://github.com/justcallmekoko/ESP32Marauder/blob/master/LICENSE)--->
-<!---[![Gitter](https://badges.gitter.im/justcallmekoko/ESP32Marauder.png)](https://gitter.im/justcallmekoko/ESP32Marauder)--->
-<!---[![Build Status](https://travis-ci.com/justcallmekoko/ESP32Marauder.svg?branch=master)](https://travis-ci.com/justcallmekoko/ESP32Marauder)--->
-<!---Shields/Badges https://shields.io/--->
-
-# ESP32 Marauder
-<p align="center"><img alt="Marauder logo" src="https://github.com/justcallmekoko/ESP32Marauder/blob/master/pictures/marauder_skull_patch_04_full_final.png?raw=true" width="300"></p>
-<p align="center">
-  <b>A suite of WiFi/Bluetooth offensive and defensive tools for the ESP32</b>
-  <br><br>
-  <a href="https://github.com/justcallmekoko/ESP32Marauder/blob/master/LICENSE"><img alt="License" src="https://img.shields.io/github/license/mashape/apistatus.svg"></a>
-  <a href="https://gitter.im/justcallmekoko/ESP32Marauder"><img alt="Gitter" src="https://badges.gitter.im/justcallmekoko/ESP32Marauder.png"/></a>
-  <a href="https://github.com/justcallmekoko/ESP32Marauder/releases/latest"><img src="https://img.shields.io/github/downloads/justcallmekoko/ESP32Marauder/total" alt="Downloads"/></a>
-  <br>
-  <a href="https://twitter.com/intent/follow?screen_name=jcmkyoutube"><img src="https://img.shields.io/twitter/follow/jcmkyoutube?style=social&logo=twitter" alt="Twitter"></a>
-  <a href="https://www.instagram.com/just.call.me.koko"><img src="https://img.shields.io/badge/Follow%20Me-Instagram-orange" alt="Instagram"/></a>
-  <br><br>
-</p>
-    
-[![Build and Push](https://github.com/justcallmekoko/ESP32Marauder/actions/workflows/build_push.yml/badge.svg)](https://github.com/justcallmekoko/ESP32Marauder/actions/workflows/build_push.yml)
-
-## Getting Started
-Download the [latest release](https://github.com/justcallmekoko/ESP32Marauder/releases/latest) of the firmware.  
-
-Check out the project [wiki](https://github.com/justcallmekoko/ESP32Marauder/wiki) for a full overview of the ESP32 Marauder
-
-# For Sale Now
-You can buy the ESP32 Marauder using [this link](https://www.justcallmekokollc.com)
