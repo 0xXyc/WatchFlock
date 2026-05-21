@@ -83,7 +83,7 @@ Walk near suspected hardware. Hits show up live with vendor, RSSI, channel, and 
 - The **first sighting of each unique device** (per-MAC, so you don't get spammed, second packet from the same MAC stays quiet)
 - **GPS fix acquired**, the moment `gps=ok` flips true, so you know coords will now be tagged onto subsequent hits
 
-## Where your data lands
+## where are my pcaps and gps data?
 
 Both kinds of capture are written to the Flipper SD card under `/ext/apps_data/swiz_flock_hunter/`:
 
