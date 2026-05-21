@@ -104,13 +104,16 @@ Both kinds of capture are written to the Flipper SD card under `/ext/apps_data/s
   ```
   `storage read` prints small text files directly to the terminal. For binary PCAPs, stick to qFlipper.
 
-## What this fork adds
+## what's new
+
+Two scan modes on top of upstream Marauder:
 
 | Mode | CLI command | Detects |
 |------|-------------|---------|
-| **`WIFI_SCAN_FLOCK_AP`** | `sniffflockwifi [-b 2g\|5g\|all]` | Pole-mounted Falcon V2s probing for hidden uplink SSIDs |
-| **`BT_SCAN_FLOCK_BLE`** | `sniffflockble` | External Penguin batteries advertising via BLE (XUNTONG mfg ID `0x09C8`) |
-| **`SWIZ_FLIPPER_PROTOCOL`** *(compile flag)* |, | Emits tagged-text `HIT` / `STAT` / `HIDE` / `SWIZ ready` records the [Swiz's WatchFlock](./flipper/) Flipper FAP parses |
+| `WIFI_SCAN_FLOCK_AP` | `sniffflockwifi [-b 2g\|5g\|all]` | Pole-mounted Falcon V2s probing for hidden uplink SSIDs |
+| `BT_SCAN_FLOCK_BLE` | `sniffflockble` | External Penguin batteries advertising via BLE (XUNTONG mfg ID `0x09C8`) |
+
+Plus a build flag, `-DSWIZ_FLIPPER_PROTOCOL`, that turns on tagged-text records over UART (`HIT`, `STAT`, `HIDE`, `SWIZ ready`). That's what the [Flipper FAP](./flipper/) parses to render the live dashboard.
 
 ## Detection rules
 
