@@ -1,5 +1,4 @@
-// Swiz WiFi Flock Hunter
-// Flipper Zero companion app for WatchFlock.
+// Swiz's WatchFlock — Flipper Zero companion app for the WatchFlock C5 firmware.
 //
 // On launch, presents a band-picker submenu (2.4 GHz / 5 GHz / Dual / BLE).
 // Selection drives a runtime CLI argument to the C5 firmware so band changes

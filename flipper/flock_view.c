@@ -68,8 +68,8 @@ static void draw_header(Canvas* c, SwizModel* m) {
     // Header tracks the active band so the user can tell which radio is in
     // play even before the first SWIZ ack lands (no hits yet, no badge).
     const char* title = (m->active_band == SwizBandBLE) ?
-                        "Swiz BLE Flock Hunter" :
-                        "Swiz WiFi Flock Hunter";
+                        "WatchFlock BLE" :
+                        "WatchFlock WiFi";
     canvas_draw_str(c, 2, 10, title);
     canvas_draw_line(c, 0, 12, 128, 12);
 

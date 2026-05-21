@@ -7,10 +7,10 @@
 #include <string.h>
 
 #define LOG_DIR  "/ext/apps_data/swiz_flock_hunter"
-#define LOG_PATH LOG_DIR "/SwizWiFiFlockHunter-hits.csv"
+#define LOG_PATH LOG_DIR "/WatchFlock-hits.csv"
 
 static const char* CSV_HEADER =
-    "Swiz WiFi Flock Hunter - Detection Log,,,,,,,,,,,,,,,\n"
+    "WatchFlock - Detection Log,,,,,,,,,,,,,,,\n"
     "fired_at_ms,mac,oui,vendor,rule,ssid,ssid_hidden,rssi,ch,conf,gps_ok,lat,lon,alt,fix_time,flipper_time\n";
 
 static Storage* g_storage = NULL;
@@ -70,7 +70,7 @@ void flock_log_init(void) {
             format_now_iso(ts, sizeof(ts));
             char archive_path[160];
             snprintf(archive_path, sizeof(archive_path),
-                LOG_DIR "/SwizWiFiFlockHunter-hits-archive-%s.csv", ts);
+                LOG_DIR "/WatchFlock-hits-archive-%s.csv", ts);
             // best-effort: if rename fails, fall through and we'll append-with-
             // mixed-schema, which is uglier than a clean archive but not fatal.
             storage_common_rename(g_storage, LOG_PATH, archive_path);
