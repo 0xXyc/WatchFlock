@@ -60,7 +60,49 @@ That builds the FAP, pushes it to `/ext/apps/GPIO/swiz_flock_hunter.fap` on the 
 
 Stack the C5 on top of the koko adapter, plug the adapter into the Flipper's expansion header. Power via USB-C to the C5 (or run the Flipper on battery — the adapter pulls power down through the Flipper).
 
-On the Flipper: **Apps → GPIO → Swiz's WatchFlock** → pick a band (`2.4 GHz`, `5 GHz`, `Dual`, or `BLE`). Walk near suspected hardware. Hits show up live with vendor, RSSI, channel, and GPS coords if you have a fix.
+On the Flipper: **Apps → GPIO → Swiz's WatchFlock**.
+
+<p align="center">
+  <img src="./pictures/screenshots/flipper-apps-menu.png" alt="Swiz's WatchFlock in the Flipper GPIO apps menu" width="320">
+</p>
+
+Pick a band (`Dual (2.4+5GHz)`, `2.4 GHz only`, `5.0 GHz only`, or BLE):
+
+<p align="center">
+  <img src="./pictures/screenshots/flipper-band-picker.png" alt="Band picker" width="320">
+</p>
+
+Walk near suspected hardware. Hits show up live with vendor, RSSI, channel, and GPS coords if you have a fix:
+
+<p align="center">
+  <img src="./pictures/screenshots/flipper-running.png" alt="Running, scanning WiFi" width="320">
+</p>
+
+**Notifications.** The Flipper buzzes + beeps on:
+
+- The **first sighting of each unique device** (per-MAC, so you don't get spammed — second packet from the same MAC stays quiet)
+- **GPS fix acquired** — the moment `gps=ok` flips true, so you know coords will now be tagged onto subsequent hits
+
+## Where your data lands
+
+Both kinds of capture are written to the Flipper SD card under `/ext/apps_data/swiz_flock_hunter/`:
+
+| File | What it is |
+|---|---|
+| `WatchFlock-hits.csv` | One row per unique device hit. Columns: timestamp, MAC, OUI, vendor, rule, SSID, RSSI, channel, confidence, GPS-fix flag, lat, lon, alt, GPS time, Flipper time. |
+| `flockwifi-YYYYMMDD-HHMMSS.pcap` | Raw 802.11 frames from each scan session, framed with a radiotap header carrying channel + RSSI. Open in Wireshark. |
+
+**Why these matter.** The CSV is your *findings record* — pop it into a spreadsheet or onto a map and you've got a list of where each Flock camera lives, when you saw it, and how strong the signal was. The PCAPs are *RF evidence* — the actual probe-req/beacon frames the cameras emit. Useful for confirming OUI matches, sharing findings with other researchers, or reproducing detections offline.
+
+**Getting the files off the Flipper:**
+
+- **qFlipper (easiest):** open qFlipper → File Manager tab → navigate to `SD Card → apps_data → swiz_flock_hunter` → right-click any file → Save As.
+- **Flipper CLI (no GUI needed):** connect to `/dev/cu.usbmodemflip_*` at 115200 8N1 (e.g. `screen /dev/cu.usbmodemflip_XXXX 115200`), then:
+  ```
+  storage list /ext/apps_data/swiz_flock_hunter
+  storage read /ext/apps_data/swiz_flock_hunter/WatchFlock-hits.csv
+  ```
+  `storage read` prints small text files directly to the terminal. For binary PCAPs, stick to qFlipper.
 
 ## What this fork adds
 
