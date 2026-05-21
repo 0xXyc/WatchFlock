@@ -5,7 +5,7 @@ WatchFlock is the ESP32-C5 firmware for spotting Flock Safety ALPRs and SoundThi
 - **`WIFI_SCAN_FLOCK_AP`** (CLI: `sniffflockwifi`) — passive 802.11 monitor mode, hops channels, matches probe-req / probe-resp / beacon frames against Flock OUI + SSID rules. Catches solar-only Falcon V2s that never advertise BLE.
 - **`BT_SCAN_FLOCK_BLE`** (CLI: `sniffflockble`) — pure-BLE NimBLE scan, matches XUNTONG mfg ID `0x09C8` for Penguin batteries. WiFi radio is forced off for clean RF.
 
-Pairs with the [WatchFlock-Hunter](https://github.com/0xXyc/SwizFlockHunter) Flipper Zero FAP via the SWIZ-protocol tagged-text records the firmware emits over UART when built with `-DSWIZ_FLIPPER_PROTOCOL`.
+Pairs with the [Swiz's WatchFlock](./flipper/) Flipper Zero FAP (in this repo) via the SWIZ-protocol tagged-text records the firmware emits over UART when built with `-DSWIZ_FLIPPER_PROTOCOL`.
 
 ## Why this exists
 
