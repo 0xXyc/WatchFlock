@@ -10,6 +10,7 @@
 #include "swiz_flock_hunter.h"
 #include "flock_log.h"
 #include "flock_parser.h"
+#include "flock_pcap.h"
 #include "flock_uart.h"
 #include "flock_view.h"
 
@@ -21,7 +22,15 @@
 #define VIEW_ID_MENU       0
 #define VIEW_ID_DASHBOARD  1
 #define VIEW_ID_INIT       2
-#define EVENT_QUEUE_SIZE   16
+// Sized to absorb scan-startup bursts (band-switch triple-shot + SWIZ ready
+// + STAT + several HITs) without dropping HITs when on_timer hasn't fired
+// yet. The producer (rx_worker_run) uses furi_message_queue_put with
+// timeout=0, so when the queue is full HITs get silently dropped — CSV
+// still records because that write is upstream of the queue, but
+// fire_alert never runs and the badge never appears. 16 was too small;
+// observed drops in dense urban scans. 64 covers ~12 seconds of normal
+// idle plus burst headroom.
+#define EVENT_QUEUE_SIZE   64
 #define TICK_INTERVAL_MS   250
 // Time to wait after switching to the init view before kicking off the
 // blocking flock_uart_start. Just enough for the dispatcher to render the
@@ -133,6 +142,7 @@ int32_t swiz_flock_hunter_app(void* p) {
     if(!otg_was_on) furi_hal_power_enable_otg();
 
     flock_log_init();
+    flock_pcap_init();
 
     app.gui         = furi_record_open(RECORD_GUI);
     app.notif       = furi_record_open(RECORD_NOTIFICATION);
@@ -199,6 +209,7 @@ int32_t swiz_flock_hunter_app(void* p) {
     furi_record_close(RECORD_GUI);
 
     flock_log_deinit();
+    flock_pcap_deinit();
 
     return 0;
 }

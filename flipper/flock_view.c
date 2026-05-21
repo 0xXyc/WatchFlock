@@ -27,6 +27,35 @@ static void fire_alert(SwizApp* app, SwizConf conf) {
     notification_message(app->notif, seq);
 }
 
+// GPS-lock acquired notification. Must be audibly + tactilely distinct from
+// the three Flock-detection sequences so the user knows what just happened
+// without looking. Three rapid ascending notes (G5 / C6 / E6, perfect
+// fourth + major third) with a green LED hold and a single brief vibro at
+// the start. Distinct from sequence_success (C-major triad over a longer
+// hold) and from the vibro-only MEDIUM/LOW sequences.
+static const NotificationSequence sequence_gps_lock = {
+    &message_green_255,
+    &message_vibro_on,
+    &message_note_g5,
+    &message_delay_50,
+    &message_sound_off,
+    &message_vibro_off,
+    &message_note_c6,
+    &message_delay_50,
+    &message_sound_off,
+    &message_note_e6,
+    &message_delay_100,
+    &message_sound_off,
+    &message_delay_250,
+    &message_green_0,
+    NULL,
+};
+
+static void fire_gps_lock(SwizApp* app) {
+    if (!app || !app->notif) return;
+    notification_message(app->notif, &sequence_gps_lock);
+}
+
 // 128x64 layout
 //
 //   [0..12]   header bar      "Swiz Flock Hunter"
@@ -235,7 +264,16 @@ void flock_view_apply_msg(View* v, SwizApp* app, const SwizMsg* msg, uint32_t no
                 m->hidden  = msg->body.stat.hidden;
                 m->flagged = msg->body.stat.flagged;
                 m->ch             = msg->body.stat.ch;
+                // Edge-trigger the GPS-lock notification on false→true. The
+                // STAT field gps=ok requires both module-detected AND fix
+                // acquired, so the transition reliably indicates a real
+                // fix. Refires if the fix is lost and reacquired (rare,
+                // but useful signal if it happens mid-field).
+                bool was_gps_ok = m->gps_ok;
                 m->gps_ok         = msg->body.stat.gps_ok;
+                if (!was_gps_ok && m->gps_ok) {
+                    fire_gps_lock(app);
+                }
                 m->last_stat_tick = now_tick;
                 // STAT is SWIZ-protocol-only; if we get one we know the
                 // firmware is talking even if the SWIZ ready ack was missed.
