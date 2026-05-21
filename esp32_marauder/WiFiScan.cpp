@@ -10967,12 +10967,14 @@ void WiFiScan::flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t t
     const char* oui_rule = fyWifiMatchOUI(src_mac);
     if (!rule) rule = oui_rule;
 
-    #ifdef SWIZ_TEST_MODE
-      // Local-validation only: force-match every probe-req so pcap + CSV
-      // accumulate frames without needing a real Flock pole nearby.
-      // Build WITHOUT this flag for field runs.
-      if (!rule) rule = "test_anyprobe";
-    #endif
+    // SWIZ_TEST_MODE force-match (rule=test_anyprobe) disabled at source
+    // level on 2026-05-14. Indoor validation flooded hits.csv with thousands
+    // of unrelated probe-req rows and made the rig look like it was catching
+    // Flocks when it wasn't. If we need indoor validation again, uncomment
+    // and rebuild with -DSWIZ_TEST_MODE — but commit-revert before fielding.
+    // #ifdef SWIZ_TEST_MODE
+    //   if (!rule) rule = "test_anyprobe";
+    // #endif
 
     if (rule) {
         fy_wifi_match_count++;
@@ -11068,20 +11070,38 @@ void WiFiScan::flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t t
         fy_last_wifi_stats = now;
         #ifdef SWIZ_FLIPPER_PROTOCOL
           const char* stat_gps = "nofix";
+          const char* stat_mod = "no";
+          int         stat_sats = 0;
+          uint32_t    stat_parsed = 0;
+          uint32_t    stat_baud   = 0;
+          uint32_t    stat_bytes  = 0;
           String stat_lat = "", stat_lon = "";
           #ifdef HAS_GPS
-            if (gps_obj.getGpsModuleStatus() && gps_obj.getFixStatus()) {
+            bool mod_ok = gps_obj.getGpsModuleStatus();
+            bool fix_ok = gps_obj.getFixStatus();
+            stat_mod    = mod_ok ? "ok" : "no";
+            stat_sats   = gps_obj.getNumSats();
+            stat_parsed = gps_obj.getParsedCount();
+            stat_baud   = gps_obj.getCurrentBaud();
+            stat_bytes  = gps_obj.getBytesTotal();
+            if (mod_ok && fix_ok) {
                 stat_gps = "ok";
                 stat_lat = gps_obj.getLat();
                 stat_lon = gps_obj.getLon();
             }
           #endif
-          Serial.printf("STAT frames=%u mgmt=%u visible=%u hidden=%u flagged=%u hits=%u ch=%d gps=%s lat=%s lon=%s\n",
+          // mod=, sats=, parsed=, baud=, bytes= are diagnostic fields the
+          // Flipper parser ignores. Used to distinguish "module not talking"
+          // (mod=no, bytes=0) / "cold-start, sats acquiring" (parsed>0
+          // sats=0) / "got fix" / "bytes flowing but wrong baud" (parsed=0
+          // with mod=ok, bytes growing slowly).
+          Serial.printf("STAT frames=%u mgmt=%u visible=%u hidden=%u flagged=%u hits=%u ch=%d gps=%s mod=%s sats=%d parsed=%u baud=%u bytes=%u lat=%s lon=%s\n",
                         fy_wifi_frames_seen, fy_wifi_mgmt_seen,
                         fy_visible_count, fy_hidden_count,
                         fy_hidden_count, fy_wifi_match_count,
                         wifi_scan_obj.set_channel,
-                        stat_gps, stat_lat.c_str(), stat_lon.c_str());
+                        stat_gps, stat_mod, stat_sats, stat_parsed, stat_baud, stat_bytes,
+                        stat_lat.c_str(), stat_lon.c_str());
         #else
           Serial.printf("[FLOCK-WIFI] [%s] frames_seen:%u matches:%u hidden_flagged:%u ch:%d\n",
                         fyUptimeStr(), fy_wifi_frames_seen, fy_wifi_match_count,

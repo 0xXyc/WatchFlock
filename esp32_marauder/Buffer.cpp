@@ -48,7 +48,12 @@ void Buffer::open(bool is_pcap){
     write(int32_t(0)); // GMT to local correction
     write(uint32_t(0)); // accuracy of timestamps
     write(uint32_t(SNAP_LEN)); // max length of captured packets, in octets
-    write(uint32_t(105)); // data link type
+    // DLT 127 = LINKTYPE_IEEE802_11_RADIOTAP. Switching from 105 (raw 802.11)
+    // because Buffer::append now prepends a 13-byte radiotap header per
+    // frame carrying primary channel + RSSI from rx_ctrl. Wireshark/tshark
+    // need radiotap to expose those fields; with raw 802.11 they show as
+    // empty in radiotap.dbm_antsignal and radiotap.channel.freq.
+    write(uint32_t(127)); // data link type
   }
 }
 
@@ -121,9 +126,48 @@ void Buffer::add(const uint8_t* buf, uint32_t len, bool is_pcap){
 
 void Buffer::append(wifi_promiscuous_pkt_t *packet, int len) {
   bool save_packet = settings_obj.loadSetting<bool>(text_table4[7]);
-  if (save_packet) {
-    add(packet->payload, len, true);
-  }
+  if (!save_packet) return;
+
+  // Build a minimal radiotap header so RSSI + channel survive the capture.
+  // Without this, tshark sees the DLT but every radiotap.dbm_antsignal and
+  // radiotap.channel.freq is empty. 13-byte layout:
+  //   [0..1]  version=0, pad=0
+  //   [2..3]  it_len = 13 (LE)
+  //   [4..7]  it_present = (1<<3 channel) | (1<<5 dbm_antsignal) = 0x28
+  //   [8..9]  channel.freq (LE)
+  //   [10..11] channel.flags (LE, OFDM band hint)
+  //   [12]    dbm_antsignal (int8)
+  uint8_t rt[13];
+  rt[0] = 0; rt[1] = 0;
+  rt[2] = 13; rt[3] = 0;
+  rt[4] = 0x28; rt[5] = 0; rt[6] = 0; rt[7] = 0;
+
+  uint8_t ch = packet->rx_ctrl.channel;
+  uint16_t freq;
+  if (ch >= 1 && ch <= 13)        freq = 2412 + (ch - 1) * 5;
+  else if (ch == 14)              freq = 2484;
+  else if (ch >= 36 && ch <= 196) freq = 5000 + ch * 5;
+  else                            freq = 0;
+  rt[8]  = (uint8_t)(freq & 0xff);
+  rt[9]  = (uint8_t)((freq >> 8) & 0xff);
+
+  uint16_t chflags = (freq != 0 && freq < 5000) ? 0x00C0 /* 2 GHz + OFDM */
+                                                : 0x0140 /* 5 GHz + OFDM */;
+  rt[10] = (uint8_t)(chflags & 0xff);
+  rt[11] = (uint8_t)((chflags >> 8) & 0xff);
+  rt[12] = (uint8_t)packet->rx_ctrl.rssi;
+
+  // Combine radiotap + 802.11 frame. Static buffer is safe — append is
+  // only called from the WiFi promiscuous callback (single task context).
+  // Sized for max 802.11 frame (2324) plus radiotap (13) plus headroom.
+  static uint8_t combined[2400];
+  const int RT_LEN = 13;
+  const int MAX_FRAME = (int)sizeof(combined) - RT_LEN;
+  int frame_len = (len > MAX_FRAME) ? MAX_FRAME : len;
+
+  memcpy(combined, rt, RT_LEN);
+  memcpy(combined + RT_LEN, packet->payload, frame_len);
+  add(combined, RT_LEN + frame_len, true);
 }
 
 void Buffer::append(String log) {

@@ -35,11 +35,28 @@ void GpsInterface::begin() {
   if ((gps_baud != 9600) && (gps_baud != 115200))
     Serial.println(F("Could not detect GPS baudrate"));
 
+  // Track what baud the UART is actually at after probing. If detection
+  // failed (gps_baud == 0) the last probeBaud() call in init left us at
+  // 9600 — record that so the recovery logic in main() knows what to
+  // swap away from. If detection succeeded, lock to that baud.
+  this->gps_current_baud = (gps_baud == 115200) ? 115200 : 9600;
+  this->gps_baud_locked  = (gps_baud != 0);
+
   delay(1000);
 
   MicroNMEA::sendSentence(GpsSerial, "$PSTMSETPAR,1201,0x00000042");
   MicroNMEA::sendSentence(GpsSerial, "$PSTMSAVEPAR");
 
+  // Soft reset ($PSTMSRR). Earlier session commented this out to avoid
+  // wiping almanac/ephemeris on every C5 boot (kokollc adapter doesn't
+  // power the GPS module's VBAT backup line, so every reset = full cold
+  // start ~12 min TTFF). BUT removing the reset put the module into a
+  // near-silent state (~3 bytes/min observed 2026-05-20), apparently
+  // because the prior $PSTMSETPAR/$PSTMSAVEPAR doesn't take effect until
+  // the module restarts its NMEA pipeline. Restoring SRR: we eat the
+  // cold-start TTFF cost as the cost of having a talking module at all.
+  // A smarter fix later: skip SRR if last fix is recent and seed via
+  // $PSTMINITGPS instead of forcing a full restart.
   MicroNMEA::sendSentence(GpsSerial, "$PSTMSRR");
 
   delay(1000);
@@ -655,6 +672,18 @@ bool GpsInterface::getGpsModuleStatus() {
   return this->gps_enabled;
 }
 
+uint32_t GpsInterface::getParsedCount() {
+  return this->gps_parsed_count;
+}
+
+uint32_t GpsInterface::getCurrentBaud() {
+  return this->gps_current_baud;
+}
+
+uint32_t GpsInterface::getBytesTotal() {
+  return this->gps_bytes_total;
+}
+
 String GpsInterface::getText() {
   return this->gps_text;
 }
@@ -758,12 +787,49 @@ String GpsInterface::getNmeaNotparsed() {
 }
 
 void GpsInterface::main() {
+  bool got_bytes = false;
   while (GpsSerial.available()) {
-    //Fetch the character one by one
     char c = GpsSerial.read();
-    //Serial.print(c);
-    //Pass the character to the library
-    nmea.process(c);
+    this->gps_bytes_total++;
+    if (nmea.process(c)) {
+      this->gps_parsed_count++;
+      this->gps_baud_locked = true;
+    }
+    got_bytes = true;
+  }
+
+  // Module-alive heartbeat: begin() probes once at boot, but on the kokollc
+  // adapter the GPS module can be slow to wake and the begin-time probe
+  // sometimes returns no data even though the module is healthy. If we
+  // ever see bytes here, the module is talking — flip gps_enabled true so
+  // STAT emits gps=ok|nofix correctly instead of gps=nofix forever.
+  if (got_bytes) this->gps_enabled = true;
+
+  // Runtime baud recovery: if bytes are flowing but no NMEA sentence has
+  // ever parsed, we're talking to the module at the wrong rate. Swap
+  // 9600 <-> 115200 every ~5 seconds until a parse succeeds, then lock.
+  // Module wake on the kokollc adapter is non-deterministic — observed
+  // 1-8 seconds after C5 power-on — so begin()'s one-shot probe misses
+  // it on cold starts and leaves the UART at 9600 while the module
+  // (NVRAM-configured to 115200) talks past it.
+  if (!this->gps_baud_locked && this->gps_recovery_attempts < 8) {
+    uint32_t now = millis();
+    if (this->gps_last_recovery_ms == 0) this->gps_last_recovery_ms = now;
+    if (now - this->gps_last_recovery_ms > 5000) {
+      // Trigger on ANY bytes seen (framing errors at wrong baud often drop
+      // most bytes). gps_enabled is the heartbeat — "we ever saw a byte."
+      if (this->gps_enabled && this->gps_parsed_count == 0) {
+        uint32_t new_baud = (this->gps_current_baud == 115200) ? 9600 : 115200;
+        GpsSerial.end();
+        delay(50);
+        GpsSerial.begin(new_baud, SERIAL_8N1, GPS_TX, GPS_RX);
+        this->gps_current_baud = new_baud;
+        this->gps_recovery_attempts++;
+        Serial.printf("GPS baud-recovery #%u: swapped to %u\n",
+                      this->gps_recovery_attempts, new_baud);
+      }
+      this->gps_last_recovery_ms = now;
+    }
   }
 
   uint8_t num_sat = nmea.getNumSatellites();

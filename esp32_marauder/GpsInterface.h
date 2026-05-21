@@ -44,6 +44,9 @@ class GpsInterface {
     bool getFixStatus();
     String getFixStatusAsString();
     bool getGpsModuleStatus();
+    uint32_t getParsedCount();
+    uint32_t getCurrentBaud();
+    uint32_t getBytesTotal();
     String getLat();
     String getLon();
     int32_t getLatInt();
@@ -105,6 +108,20 @@ class GpsInterface {
     bool good_fix = false;
     char nav_system='\0';
     uint8_t num_sats = 0;
+
+    // Runtime baud-recovery state. The kokollc adapter's GPS module can
+    // wake AFTER begin()'s probe window closes; when that happens the UART
+    // is left at the last probe rate (9600) but the module emits at the
+    // NVRAM-saved rate (often 115200 from a prior successful run). Bytes
+    // flow so gps_enabled=true via the heartbeat, but no NMEA sentence
+    // ever parses, so sats=0 forever. main() watches for that pattern
+    // and swaps baud until parses start, then locks.
+    uint32_t gps_parsed_count = 0;
+    uint32_t gps_bytes_total = 0;
+    uint32_t gps_current_baud = 0;
+    uint32_t gps_last_recovery_ms = 0;
+    uint8_t  gps_recovery_attempts = 0;
+    bool     gps_baud_locked = false;
 
     type_t type_flag = GPSTYPE_NATIVE;
 
