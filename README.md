@@ -139,18 +139,6 @@ Stock Marauder's "Flock Sniff" only looks for BLE chatter from the optional Peng
 
 WatchFlock is for understanding where surveillance hardware is installed in your community, *defensive* recon for journalists, researchers, civil-liberties groups, and curious civilians. It is not a jamming tool.
 
-## Repo layout
-
-Three components, one repo. They're separate codebases (different toolchains) but tightly coupled (the FAP only works with this firmware, and the emitter only matters for testing this firmware end-to-end).
-
-```
-WatchFlock/
-  esp32_marauder/   firmware for the ESP32-C5 (Arduino + Marauder fork)
-  C5_Py_Flasher/    Python flasher for the C5 over USB-C
-  flipper/          Flipper Zero FAP companion (built with ufbt)
-  emitter/          ESP32-WROVER-E test rig that fakes Flock/Penguin signals
-```
-
 ### Firmware ([esp32_marauder/](./esp32_marauder/))
 
 The C5 sniffer with WIFI_SCAN_FLOCK_AP and BT_SCAN_FLOCK_BLE modes. Build and flash via [BUILD-C5.md](./BUILD-C5.md). Pin Arduino ESP32 core to 3.3.0 (3.3.8 has a PSRAM regression on the N8R8 chip), use `CDCOnBoot=default`, partition `default_8MB`.
