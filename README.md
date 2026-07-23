@@ -19,6 +19,7 @@ What you need:
 
 ```bash
 arduino-cli config set library.enable_unsafe_install true
+arduino-cli lib update-index
 arduino-cli lib install --git-url https://github.com/marian-craciunescu/ESP32Ping
 arduino-cli lib install "NimBLE-Arduino" "LinkedList" "ArduinoJSON" "ESPSoftwareSerial" "MicroNMEA" "AsyncTCP" "Adafruit NeoPixel" "Adafruit MAX1704X"
 arduino-cli core install esp32:esp32@3.3.0
