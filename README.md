@@ -18,6 +18,10 @@ What you need:
 ### 1. Build the C5 firmware
 
 ```bash
+arduino-cli config set library.enable_unsafe_install true
+arduino-cli lib update-index
+arduino-cli lib install --git-url https://github.com/marian-craciunescu/ESP32Ping
+arduino-cli lib install "NimBLE-Arduino" "LinkedList" "ArduinoJSON" "ESPSoftwareSerial" "MicroNMEA" "AsyncTCP" "Adafruit NeoPixel" "Adafruit MAX1704X"
 arduino-cli core install esp32:esp32@3.3.0
 arduino-cli compile \
   -b "esp32:esp32:esp32c5:FlashSize=8M,PartitionScheme=default_8MB,PSRAM=enabled,CDCOnBoot=default" \
@@ -44,7 +48,7 @@ python3 -m esptool --chip esp32c5 --port /dev/cu.usbmodemXXXX --baud 460800 writ
 Offsets are **0x2000 / 0x8000 / 0x10000**, *not* the classic ESP32 0x1000. Wrong offsets boot-loop the chip with `invalid header`. Easier alternative if you don't want to memorize that:
 
 ```bash
-python3 C5_Py_Flasher/c5_flasher.py build/esp32_marauder.ino.bin
+python3 C5_Py_Flasher/c5_flasher.py
 ```
 
 ### 3. Sideload the Flipper FAP
