@@ -82,7 +82,7 @@ Boards Manager → search "esp32" → install latest 3.x
 arduino-cli core install esp32:esp32@3.0.7
 arduino-cli compile -b esp32:esp32:esp32c5 \
   --build-property "build.extra_flags=-DMARAUDER_C5" \
-  ~/repos/flock-marauder/esp32_marauder
+  ~/repos/WatchFlock/esp32_marauder
 ```
 
 The `.bin` lands in the build directory printed at the end.
@@ -90,11 +90,35 @@ The `.bin` lands in the build directory printed at the end.
 ## Flash
 
 ```bash
-cd ~/repos/flock-marauder/C5_Py_Flasher
-python3 c5_flasher.py /path/to/your/esp32_marauder.ino.bin
+cd ~/repos/WatchFlock/C5_Py_Flasher
+python3 c5_flasher.py
 ```
 
-The flasher script puts the C5 into download mode and writes bootloader + firmware. If it stalls, hold BOOT, tap RESET, release BOOT, retry.
+With no arguments the script flashes the images in `C5_Py_Flasher/bins/`. To flash a fresh
+compile instead, point it at the Arduino build folder:
+
+```bash
+python3 c5_flasher.py --bins-dir ../build
+```
+
+Useful flags:
+
+| Flag | Purpose |
+|------|---------|
+| `<firmware.bin>` | Positional. Flash this app image instead of the one auto-picked from the bins folder. |
+| `--bins-dir DIR` | Where to find the bootloader, partition table and app image. Accepts an Arduino build folder. |
+| `--port PORT` | Skip autodetection and use this serial port. |
+| `--baud RATE` | Flash baud rate. Defaults to 921600; drop to 460800 if writes fail on a long cable. |
+
+The script autodetects a connected USB serial device, so the board can already be plugged in
+when you start it. If more than one is present it lists them and asks which to use.
+
+Offsets are read out of the partition table you are flashing rather than hardcoded, and the
+script refuses to run if the app image is too big for the app partition. The C5 second-stage
+bootloader goes at `0x2000`, not `0x0` like the C3 and C6.
+
+The script puts the C5 into download mode and writes bootloader + partition table + firmware.
+If it stalls, hold BOOT, tap RESET, release BOOT, retry.
 
 ## Run
 
