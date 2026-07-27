@@ -40,6 +40,26 @@ static const OuiEntry kTable[] = {
     {"d0:39:57", "USI"},
     {"e8:d0:fc", "USI"},
     {"d4:11:d6", "SoundThinking"},
+    // Community-observed prefixes (DeFlock). The firmware reports these at
+    // MEDIUM confidence (rule=oui_flock_likely), so the label says "likely" --
+    // a HIGH and a MEDIUM hit must not read identically on the badge.
+    {"b8:35:32", "Flock (likely)"},
+    {"c0:35:32", "Flock (likely)"},
+    {"24:b2:b9", "Flock (likely)"},
+    {"e0:4f:43", "Flock (likely)"},
+    {"b8:1e:a4", "Flock (likely)"},
+    {"70:08:94", "Flock (likely)"},
+    {"3c:71:bf", "Flock (likely)"},
+    {"58:00:e3", "Flock (likely)"},
+    {"5c:93:a2", "Flock (likely)"},
+    {"64:6e:69", "Flock (likely)"},
+    {"48:27:ea", "Flock (likely)"},
+    {"a4:cf:12", "Flock (likely)"},
+    // Contributed by Michael / DeFlockJoplin, attributed to a Raven acoustic
+    // sensor. Locally administered (bit 1 of the first byte is set), so it is
+    // not an IEEE-registered vendor prefix and will never appear in an OUI
+    // registry — the lookup here is the only thing that can name it.
+    {"82:6b:f2", "Flock Raven? (likely)"},
 };
 
 void flock_oui_lookup(const char* oui, char* out, size_t out_sz) {

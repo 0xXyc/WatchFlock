@@ -10707,6 +10707,25 @@ static const char* fy_flock_mac_prefixes[] = {
     "b4:1e:52"
 };
 
+// Community-observed Flock prefixes (DeFlock). Deliberately a separate tier
+// from fy_flock_mac_prefixes above: these are field observations rather than
+// direct registrations, so they emit rule=oui_flock_likely -> conf=MEDIUM.
+// A MEDIUM badge says "likely Flock, cross-check before acting on it", which
+// is the honest strength of the evidence behind them.
+//
+// 82:6b:f2 needs its own caveat. Contributed by Michael / DeFlockJoplin and
+// attributed to a Raven acoustic sensor, but upstream flock-you REMOVED it in
+// commit 39012a7 ("Remove possible erroneous MAC for further validation"). It
+// is also locally administered (bit 1 of the first byte is set), so it is not
+// IEEE-registered and no vendor registry will ever resolve it. Kept here
+// because a MEDIUM hit is worth having while validation is pending — but do
+// not promote it to the HIGH tier without new field evidence.
+static const char* fy_flock_community_mac_prefixes[] = {
+    "b8:35:32", "c0:35:32", "24:b2:b9", "e0:4f:43", "b8:1e:a4",
+    "70:08:94", "3c:71:bf", "58:00:e3", "5c:93:a2", "64:6e:69",
+    "48:27:ea", "a4:cf:12", "82:6b:f2"
+};
+
 // Contract manufacturers (Liteon Tech, USI). MAC match alone may be a
 // false positive since these OUIs also ship unrelated consumer hardware.
 static const char* fy_flock_mfr_mac_prefixes[] = {
@@ -10866,6 +10885,9 @@ static const char* fyWifiMatchOUI(const uint8_t* mac) {
     if (fyMacPrefixIn(prefix, fy_soundthinking_mac_prefixes,
                       sizeof(fy_soundthinking_mac_prefixes)/sizeof(fy_soundthinking_mac_prefixes[0])))
         return "oui_shotspotter";
+    if (fyMacPrefixIn(prefix, fy_flock_community_mac_prefixes,
+                      sizeof(fy_flock_community_mac_prefixes)/sizeof(fy_flock_community_mac_prefixes[0])))
+        return "oui_flock_likely";
     if (fyMacPrefixIn(prefix, fy_flock_mfr_mac_prefixes,
                       sizeof(fy_flock_mfr_mac_prefixes)/sizeof(fy_flock_mfr_mac_prefixes[0])))
         return "oui_mfr";
@@ -10990,16 +11012,18 @@ void WiFiScan::flockWifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t t
         }
 
         // Confidence tier (mirrors triage.py logic on the laptop side).
-        // HIGH = direct/exclusive Flock OUI, exact dev SSID, or Flock-XXXXXX hex.
-        // MEDIUM = contract-mfr OUI (Liteon/USI), needs cross-check.
-        // LOW = SSID substring match alone, false-positive prone.
+        // HIGH   = direct/exclusive Flock OUI, exact dev SSID, or Flock-XXXXXX hex.
+        // MEDIUM = contract-mfr OUI (Liteon/USI), or a community-observed Flock
+        //          prefix (oui_flock_likely) — both need cross-check.
+        // LOW    = SSID substring match alone, false-positive prone.
         const char* conf = "LOW";
         if (strcmp(rule, "oui_flock") == 0 ||
             strcmp(rule, "oui_shotspotter") == 0 ||
             strcmp(rule, "ssid_exact") == 0 ||
             strcmp(rule, "ssid_pattern") == 0) {
             conf = "HIGH";
-        } else if (strcmp(rule, "oui_mfr") == 0) {
+        } else if (strcmp(rule, "oui_mfr") == 0 ||
+                   strcmp(rule, "oui_flock_likely") == 0) {
             conf = "MEDIUM";
         }
 
